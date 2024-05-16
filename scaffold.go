@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/choria-io/scaffold/internal/sprig"
 	"github.com/kballard/go-shellquote"
 	"io/fs"
 	"os"
@@ -78,6 +79,16 @@ func New(cfg Config, funcs template.FuncMap) (*Scaffold, error) {
 	}
 
 	return &Scaffold{cfg: &cfg, funcs: funcs}, nil
+}
+
+// RenderString renders a string using the same functions and behavior as the scaffold, including custom delimiters
+func (s *Scaffold) RenderString(str string, data any) (string, error) {
+	res, err := s.renderTemplateBytes("string", []byte(str), data)
+	if err != nil {
+		return "", err
+	}
+
+	return string(res), nil
 }
 
 // Logger configures a logger to use, no logging is done without this
@@ -185,7 +196,7 @@ func (s *Scaffold) templateFuncs() template.FuncMap {
 		return nil
 	}
 
-	funcs := template.FuncMap{}
+	funcs := sprig.FuncMap()
 	for k, v := range s.funcs {
 		funcs[k] = v
 	}
@@ -204,8 +215,17 @@ func (s *Scaffold) templateFuncs() template.FuncMap {
 }
 
 func (s *Scaffold) renderTemplateFile(tmpl string, data any) ([]byte, error) {
+	td, err := os.ReadFile(tmpl)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.renderTemplateBytes(filepath.Base(tmpl), td, data)
+}
+
+func (s *Scaffold) renderTemplateBytes(name string, tmpl []byte, data any) ([]byte, error) {
 	buf := bytes.NewBuffer([]byte{})
-	templ := template.New(filepath.Base(tmpl))
+	templ := template.New(name)
 	funcs := s.templateFuncs()
 	if funcs != nil {
 		templ.Funcs(funcs)
@@ -215,12 +235,7 @@ func (s *Scaffold) renderTemplateFile(tmpl string, data any) ([]byte, error) {
 		templ.Delims(s.cfg.CustomLeftDelimiter, s.cfg.CustomRightDelimiter)
 	}
 
-	td, err := os.ReadFile(tmpl)
-	if err != nil {
-		return nil, err
-	}
-
-	templ, err = templ.Parse(string(td))
+	templ, err := templ.Parse(string(tmpl))
 	if err != nil {
 		return nil, fmt.Errorf("parsing template %v failed: %w", tmpl, err)
 	}
@@ -351,7 +366,6 @@ func (s *Scaffold) Render(data any) error {
 		}
 
 		out := filepath.Join(s.cfg.TargetDirectory, strings.TrimPrefix(path, s.workingSource))
-
 		switch {
 		case d.IsDir():
 			err := os.Mkdir(out, 0775)
