@@ -7,14 +7,15 @@ package forms
 import (
 	"bytes"
 	"fmt"
-	"github.com/AlecAivazis/survey/v2"
-	"github.com/choria-io/scaffold/internal/sprig"
-	"github.com/choria-io/scaffold/internal/validator"
-	"gopkg.in/yaml.v3"
 	"io"
 	"os"
 	"strconv"
 	"text/template"
+
+	"github.com/AlecAivazis/survey/v2"
+	"github.com/choria-io/scaffold/internal/sprig"
+	"github.com/choria-io/scaffold/internal/validator"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -157,6 +158,9 @@ func (p *processor) askArrayType(prop Property, parent entry) error {
 
 		_, err = np.addChild(newArrayEntry(n))
 		return err
+
+	case nil:
+		return nil
 
 	default:
 		n := []any{}
@@ -478,6 +482,10 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 				if !ok {
 					if len(answer) > 0 {
 						return answer, nil
+					}
+
+					if prop.IfEmpty == AbsentIfEmpty {
+						return nil, nil
 					}
 
 					return []map[string]any{propertyEmptyVal(prop).(map[string]any)}, nil
