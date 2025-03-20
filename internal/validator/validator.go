@@ -23,7 +23,7 @@ func FiskValidator(validation string) fisk.OptionValidator {
 		}
 
 		if !ok {
-			return fmt.Errorf("validation using %q did not pass", validation)
+			return fmt.Errorf("validation did not pass: %s", validation)
 		}
 
 		return nil
@@ -48,7 +48,7 @@ func SurveyValidator(validation string, required bool) func(any) error {
 		}
 
 		if !ok {
-			return fmt.Errorf("validation using %q did not pass", validation)
+			return fmt.Errorf("validation did not pass: %s", validation)
 		}
 
 		return nil

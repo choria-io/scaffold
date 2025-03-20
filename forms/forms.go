@@ -397,11 +397,16 @@ func (p *processor) askFloatValue(prop Property) (float64, error) {
 
 	var ans string
 
+	validation := "isFloat(value)"
+	if prop.ValidationExpression != "" {
+		validation = fmt.Sprintf("%s && %s", validation, prop.ValidationExpression)
+	}
+
 	err = survey.AskOne(&survey.Input{
 		Message: prop.Name,
 		Help:    prop.Help,
 		Default: prop.Default,
-	}, &ans, survey.WithValidator(validator.SurveyValidator("isFloat(value)", true)))
+	}, &ans, survey.WithValidator(validator.SurveyValidator(validation, true)))
 	if err != nil {
 		return 0, err
 	}
@@ -420,11 +425,16 @@ func (p *processor) askIntValue(prop Property) (int, error) {
 
 	var ans string
 
+	validation := "isInt(value)"
+	if prop.ValidationExpression != "" {
+		validation = fmt.Sprintf("%s && %s", validation, prop.ValidationExpression)
+	}
+
 	err = survey.AskOne(&survey.Input{
 		Message: prop.Name,
 		Help:    prop.Help,
 		Default: prop.Default,
-	}, &ans, survey.WithValidator(validator.SurveyValidator("isInt(value)", true)))
+	}, &ans, survey.WithValidator(validator.SurveyValidator(validation, true)))
 	if err != nil {
 		return 0, err
 	}
