@@ -514,10 +514,29 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 
 	default:
 		var ans []string
+		var err error
+
 		for {
-			val, err := p.askStringValue(prop)
-			if err != nil {
-				return nil, err
+			var val string
+			var ok = true
+
+			if len(ans) > 0 || !prop.Required {
+				prompt := fmt.Sprintf("Add additional '%s' entry", prop.Name)
+				if len(ans) == 0 {
+					prompt = fmt.Sprintf("Add first '%s' entry", prop.Name)
+				}
+
+				ok, err = askConfirmation(prompt, false)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			if ok {
+				val, err = p.askStringValue(prop)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			if val == "" {
