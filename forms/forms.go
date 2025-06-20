@@ -63,7 +63,7 @@ func (p *Property) RenderedDescription(env map[string]any) (string, error) {
 		return "", err
 	}
 
-	return buffer.String(), nil
+	return colorMarkup(buffer.String()), nil
 }
 
 type processor struct {
