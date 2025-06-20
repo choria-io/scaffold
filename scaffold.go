@@ -8,14 +8,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/choria-io/scaffold/internal/sprig"
-	"github.com/kballard/go-shellquote"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/choria-io/scaffold/internal/sprig"
+	"github.com/kballard/go-shellquote"
 )
 
 // Config configures a scaffolding operation
@@ -24,6 +25,8 @@ type Config struct {
 	TargetDirectory string `yaml:"target"`
 	// SourceDirectory reads templates from a directory, mutually exclusive with Source
 	SourceDirectory string `yaml:"source_directory"`
+	// MergeTargetDirectory writes into existing target directories
+	MergeTargetDirectory bool `yaml:"merge_target_directory"`
 	// Source reads templates from in-process memory
 	Source map[string]any `yaml:"source"`
 	// Post configures post-processing of files using filepath globs
