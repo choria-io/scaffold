@@ -752,6 +752,143 @@ var _ = Describe("Scaffold", func() {
 		})
 	})
 
+	Describe("ChangedFiles", func() {
+		It("Should be empty before any render", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source:          map[string]any{"f": "c"},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(s.ChangedFiles()).To(BeNil())
+		})
+
+		It("Should track rendered files", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				SourceDirectory: absTestdata("simple"),
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+			Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
+		})
+
+		It("Should use forward slashes for nested paths", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				SourceDirectory: absTestdata("nested"),
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(s.Render(map[string]any{"Name": "Top", "Value": "Deep"})).To(Succeed())
+			Expect(s.ChangedFiles()).To(ConsistOf("top.txt", "sub/deep.txt"))
+		})
+
+		It("Should exclude skipped empty files", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				SourceDirectory: absTestdata("with_empty"),
+				SkipEmpty:       true,
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
+			Expect(s.ChangedFiles()).To(ConsistOf("present.txt"))
+		})
+
+		It("Should include all files when SkipEmpty is not set", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				SourceDirectory: absTestdata("with_empty"),
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
+			Expect(s.ChangedFiles()).To(ConsistOf("maybe.txt", "present.txt"))
+		})
+
+		It("Should include files created by the write function", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				SourceDirectory: absTestdata("with_write"),
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(s.Render(nil)).To(Succeed())
+			Expect(s.ChangedFiles()).To(ConsistOf("main.txt", "extra.txt"))
+		})
+
+		It("Should reset between renders", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"first.txt": "one",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(s.Render(nil)).To(Succeed())
+			Expect(s.ChangedFiles()).To(ConsistOf("first.txt"))
+
+			// second render into a new target
+			secondTarget := filepath.Join(GinkgoT().TempDir(), "target2")
+			s.cfg.TargetDirectory = secondTarget
+			s.cfg.Source = map[string]any{
+				"second.txt": "two",
+			}
+
+			Expect(s.Render(nil)).To(Succeed())
+			Expect(s.ChangedFiles()).To(ConsistOf("second.txt"))
+		})
+
+		Context("With Jet engine", func() {
+			It("Should track rendered files", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("simple"),
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
+			})
+
+			It("Should use forward slashes for nested paths", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("nested"),
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "Top", "Value": "Deep"})).To(Succeed())
+				Expect(s.ChangedFiles()).To(ConsistOf("top.txt", "sub/deep.txt"))
+			})
+
+			It("Should exclude skipped empty files", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("with_empty"),
+					SkipEmpty:       true,
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
+				Expect(s.ChangedFiles()).To(ConsistOf("present.txt"))
+			})
+
+			It("Should include files created by the write function", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("jet_with_write"),
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(nil)).To(Succeed())
+				Expect(s.ChangedFiles()).To(ConsistOf("main.txt", "extra.txt"))
+			})
+		})
+	})
+
 	Describe("Logger", func() {
 		It("Should set the logger", func() {
 			s, err := New(Config{
