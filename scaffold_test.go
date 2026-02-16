@@ -7,9 +7,11 @@ package scaffold
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"text/template"
 
+	"github.com/CloudyKit/jet/v6"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -90,6 +92,55 @@ var _ = Describe("Scaffold", func() {
 		})
 	})
 
+	Describe("NewJet", func() {
+		DescribeTable("Validation errors",
+			func(cfg Config, errMatch string) {
+				_, err := NewJet(cfg, nil)
+				Expect(err).To(MatchError(ContainSubstring(errMatch)))
+			},
+			Entry("no target",
+				Config{Source: map[string]any{"f": "c"}},
+				"target is required"),
+			Entry("no source",
+				Config{TargetDirectory: "/tmp/scaffold-validation-test"},
+				"no sources provided"),
+			Entry("missing source directory",
+				Config{TargetDirectory: "/tmp/scaffold-validation-test", SourceDirectory: "/no/such/directory"},
+				"cannot read source directory"),
+		)
+
+		It("Should require target directory to not exist", func() {
+			Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+
+			_, err := NewJet(Config{
+				TargetDirectory: targetDir,
+				Source:          map[string]any{"f": "c"},
+			}, nil)
+			Expect(err).To(MatchError("target directory exist"))
+		})
+
+		It("Should create a valid scaffold with in-memory source", func() {
+			s, err := NewJet(Config{
+				TargetDirectory: targetDir,
+				Source:          map[string]any{"f": "c"},
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(s).ToNot(BeNil())
+			Expect(s.cfg.TargetDirectory).To(Equal(targetDir))
+			Expect(s.engine).To(Equal(engineJet))
+		})
+
+		It("Should create a valid scaffold with source directory", func() {
+			s, err := NewJet(Config{
+				TargetDirectory: targetDir,
+				SourceDirectory: absTestdata("simple"),
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(s).ToNot(BeNil())
+			Expect(s.engine).To(Equal(engineJet))
+		})
+	})
+
 	Describe("RenderString", func() {
 		DescribeTable("Rendering",
 			func(cfg Config, funcs template.FuncMap, tmpl string, data any, expected string) {
@@ -145,6 +196,81 @@ var _ = Describe("Scaffold", func() {
 
 			_, err = s.RenderString("{{ if false }}x{{ end }}", nil)
 			Expect(err).To(MatchError(errSkippedEmpty))
+		})
+
+		Context("With Jet engine", func() {
+			It("Should render a basic template", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					Source:          map[string]any{"f": "c"},
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				result, err := s.RenderString("Hello {{ .Name }}", map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal("Hello World"))
+			})
+
+			It("Should support custom Jet functions", func() {
+				funcs := map[string]jet.Func{
+					"greet": func(args jet.Arguments) reflect.Value {
+						args.RequireNumOfArguments("greet", 1, 1)
+						var name string
+						err := args.ParseInto(&name)
+						if err != nil {
+							args.Panicf("greet: %v", err)
+						}
+						return reflect.ValueOf("hi " + name)
+					},
+				}
+
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					Source:          map[string]any{"f": "c"},
+				}, funcs)
+				Expect(err).ToNot(HaveOccurred())
+
+				result, err := s.RenderString(`{{ greet("bob") }}`, nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal("hi bob"))
+			})
+
+			It("Should support custom delimiters", func() {
+				s, err := NewJet(Config{
+					TargetDirectory:      targetDir,
+					Source:               map[string]any{"f": "c"},
+					CustomLeftDelimiter:  "<<",
+					CustomRightDelimiter: ">>",
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				result, err := s.RenderString("Hello << .Name >>", map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal("Hello World"))
+			})
+
+			It("Should handle SkipEmpty", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					Source:          map[string]any{"f": "c"},
+					SkipEmpty:       true,
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = s.RenderString("{{ if false }}x{{ end }}", nil)
+				Expect(err).To(MatchError(errSkippedEmpty))
+			})
+
+			It("Should return errors for invalid templates", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					Source:          map[string]any{"f": "c"},
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = s.RenderString("{{ nosuchfunc() }}", nil)
+				Expect(err).To(HaveOccurred())
+			})
 		})
 	})
 
@@ -424,6 +550,172 @@ var _ = Describe("Scaffold", func() {
 				err = s.Render(map[string]any{"Name": "World"})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to post process"))
+			})
+		})
+
+		Context("With Jet engine", func() {
+			It("Should render simple templates", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("simple"),
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Hello World"))
+			})
+
+			It("Should render nested directory structures", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("nested"),
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "Top", "Value": "Deep"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "top.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Top: Top"))
+
+				content, err = os.ReadFile(filepath.Join(targetDir, "sub", "deep.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Deep: Deep"))
+			})
+
+			It("Should skip _partials directories", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("with_partials"),
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "Test"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "main.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Main: Test"))
+
+				_, err = os.Stat(filepath.Join(targetDir, "_partials"))
+				Expect(os.IsNotExist(err)).To(BeTrue())
+			})
+
+			It("Should render with custom delimiters", func() {
+				s, err := NewJet(Config{
+					TargetDirectory:      targetDir,
+					SourceDirectory:      absTestdata("custom_delims"),
+					CustomLeftDelimiter:  "<<",
+					CustomRightDelimiter: ">>",
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "greeting.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Hello World"))
+			})
+
+			It("Should skip empty files when SkipEmpty is set", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("with_empty"),
+					SkipEmpty:       true,
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
+
+				_, err = os.Stat(filepath.Join(targetDir, "maybe.txt"))
+				Expect(os.IsNotExist(err)).To(BeTrue())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "present.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("always Test"))
+			})
+
+			It("Should support the render template function", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("jet_with_render"),
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "Rendered"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "output.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("partial: Rendered"))
+			})
+
+			It("Should support the write template function", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("jet_with_write"),
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(nil)).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "main.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("main"))
+
+				content, err = os.ReadFile(filepath.Join(targetDir, "extra.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("extra content"))
+			})
+
+			It("Should render with in-memory source", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					Source: map[string]any{
+						"hello.txt": "Hello {{ .Name }}",
+					},
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "Memory"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Hello Memory"))
+			})
+
+			It("Should post-process matching files", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("simple"),
+					Post: []map[string]string{
+						{"*.txt": "chmod 600 {}"},
+					},
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+
+				info, err := os.Stat(filepath.Join(targetDir, "hello.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(info.Mode().Perm()).To(Equal(os.FileMode(0600)))
+			})
+
+			It("Should render without funcs when nil is passed", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					Source: map[string]any{
+						"plain.txt": "no templates here",
+					},
+				}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(nil)).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "plain.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("no templates here"))
 			})
 		})
 
