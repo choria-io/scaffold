@@ -63,6 +63,7 @@ type Scaffold struct {
 	log           Logger
 	workingSource string
 	currentDir    string
+	changedFiles  []string
 }
 
 func validateConfig(cfg *Config) error {
@@ -373,7 +374,18 @@ func (s *Scaffold) saveFile(out string, content string) error {
 		return fmt.Errorf("%s is not in target directory %s", out, s.cfg.TargetDirectory)
 	}
 
-	return os.WriteFile(out, []byte(content), 0755)
+	err = os.WriteFile(out, []byte(content), 0755)
+	if err != nil {
+		return err
+	}
+
+	rel, err := filepath.Rel(s.cfg.TargetDirectory, absOut)
+	if err != nil {
+		return err
+	}
+	s.changedFiles = append(s.changedFiles, filepath.ToSlash(rel))
+
+	return nil
 }
 
 func (s *Scaffold) renderFile(out string, t string, data any) error {
@@ -427,8 +439,17 @@ func (s *Scaffold) postFile(f string) error {
 	return nil
 }
 
+// ChangedFiles returns the list of files that were created or modified during
+// the most recent Render call. Paths are relative to the target directory and
+// always use forward slashes as separators.
+func (s *Scaffold) ChangedFiles() []string {
+	return s.changedFiles
+}
+
 // Render creates the target directory and place all files into it after template processing and post-processing
 func (s *Scaffold) Render(data any) error {
+	s.changedFiles = nil
+
 	err := os.MkdirAll(s.cfg.TargetDirectory, 0770)
 	if err != nil {
 		return err
