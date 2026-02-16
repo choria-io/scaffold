@@ -12,9 +12,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"text/template"
 
+	"github.com/CloudyKit/jet/v6"
 	"github.com/choria-io/scaffold/internal/sprig"
 	"github.com/kballard/go-shellquote"
 )
@@ -46,42 +48,68 @@ type Logger interface {
 
 var errSkippedEmpty = errors.New("skipped rendering")
 
+type engineType int
+
+const (
+	engineGoTemplate engineType = iota
+	engineJet
+)
+
 type Scaffold struct {
 	cfg           *Config
+	engine        engineType
 	funcs         template.FuncMap
+	jetFuncs      map[string]jet.Func
 	log           Logger
 	workingSource string
 	currentDir    string
 }
 
-// New creates a new scaffold instance
-func New(cfg Config, funcs template.FuncMap) (*Scaffold, error) {
+func validateConfig(cfg *Config) error {
 	if cfg.TargetDirectory == "" {
-		return nil, fmt.Errorf("target is required")
+		return fmt.Errorf("target is required")
 	}
 
 	var err error
 	cfg.TargetDirectory, err = filepath.Abs(cfg.TargetDirectory)
 	if err != nil {
-		return nil, fmt.Errorf("invalid target %s: %v", cfg.TargetDirectory, err)
+		return fmt.Errorf("invalid target %s: %v", cfg.TargetDirectory, err)
 	}
 
 	if len(cfg.Source) == 0 && cfg.SourceDirectory == "" {
-		return nil, fmt.Errorf("no sources provided")
+		return fmt.Errorf("no sources provided")
 	}
 
 	if cfg.SourceDirectory != "" {
 		_, err := os.Stat(cfg.SourceDirectory)
 		if err != nil {
-			return nil, fmt.Errorf("cannot read source directory: %w", err)
+			return fmt.Errorf("cannot read source directory: %w", err)
 		}
 	}
 
 	if _, err := os.Stat(cfg.TargetDirectory); !os.IsNotExist(err) {
-		return nil, fmt.Errorf("target directory exist")
+		return fmt.Errorf("target directory exist")
+	}
+
+	return nil
+}
+
+// New creates a new scaffold instance
+func New(cfg Config, funcs template.FuncMap) (*Scaffold, error) {
+	if err := validateConfig(&cfg); err != nil {
+		return nil, err
 	}
 
 	return &Scaffold{cfg: &cfg, funcs: funcs}, nil
+}
+
+// NewJet creates a new scaffold instance using the Jet template engine
+func NewJet(cfg Config, funcs map[string]jet.Func) (*Scaffold, error) {
+	if err := validateConfig(&cfg); err != nil {
+		return nil, err
+	}
+
+	return &Scaffold{cfg: &cfg, engine: engineJet, jetFuncs: funcs}, nil
 }
 
 // RenderString renders a string using the same functions and behavior as the scaffold, including custom delimiters
@@ -217,6 +245,44 @@ func (s *Scaffold) templateFuncs() template.FuncMap {
 	return funcs
 }
 
+func (s *Scaffold) jetTemplateFuncs() map[string]jet.Func {
+	funcs := make(map[string]jet.Func)
+	for k, v := range s.jetFuncs {
+		funcs[k] = v
+	}
+
+	funcs["write"] = func(args jet.Arguments) reflect.Value {
+		args.RequireNumOfArguments("write", 2, 2)
+
+		var out, content string
+		if err := args.ParseInto(&out, &content); err != nil {
+			args.Panicf("write: %v", err)
+		}
+
+		if err := s.saveAndPostFile(filepath.Join(s.cfg.TargetDirectory, out), content); err != nil {
+			args.Panicf("write: %v", err)
+		}
+
+		return reflect.ValueOf("")
+	}
+
+	funcs["render"] = func(args jet.Arguments) reflect.Value {
+		args.RequireNumOfArguments("render", 2, 2)
+
+		templ := args.Get(0).String()
+		data := args.Get(1).Interface()
+
+		res, err := s.renderTemplateFile(filepath.Join(s.workingSource, templ), data)
+		if err != nil {
+			args.Panicf("render: %v", err)
+		}
+
+		return reflect.ValueOf(string(res))
+	}
+
+	return funcs
+}
+
 func (s *Scaffold) renderTemplateFile(tmpl string, data any) ([]byte, error) {
 	td, err := os.ReadFile(tmpl)
 	if err != nil {
@@ -227,6 +293,15 @@ func (s *Scaffold) renderTemplateFile(tmpl string, data any) ([]byte, error) {
 }
 
 func (s *Scaffold) renderTemplateBytes(name string, tmpl []byte, data any) ([]byte, error) {
+	switch s.engine {
+	case engineJet:
+		return s.renderTemplateBytesJet(name, tmpl, data)
+	default:
+		return s.renderTemplateBytesGoTempl(name, tmpl, data)
+	}
+}
+
+func (s *Scaffold) renderTemplateBytesGoTempl(name string, tmpl []byte, data any) ([]byte, error) {
 	buf := bytes.NewBuffer([]byte{})
 	templ := template.New(name)
 	funcs := s.templateFuncs()
@@ -244,6 +319,39 @@ func (s *Scaffold) renderTemplateBytes(name string, tmpl []byte, data any) ([]by
 	}
 
 	err = templ.Execute(buf, data)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cfg.SkipEmpty && len(bytes.TrimSpace(buf.Bytes())) == 0 {
+		return nil, errSkippedEmpty
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (s *Scaffold) renderTemplateBytesJet(name string, tmpl []byte, data any) ([]byte, error) {
+	loader := jet.NewInMemLoader()
+	loader.Set(name, string(tmpl))
+
+	opts := []jet.Option{jet.WithSafeWriter(nil)}
+	if s.cfg.CustomLeftDelimiter != "" && s.cfg.CustomRightDelimiter != "" {
+		opts = append(opts, jet.WithDelims(s.cfg.CustomLeftDelimiter, s.cfg.CustomRightDelimiter))
+	}
+
+	set := jet.NewSet(loader, opts...)
+
+	for k, fn := range s.jetTemplateFuncs() {
+		set.AddGlobalFunc(k, fn)
+	}
+
+	t, err := set.GetTemplate(name)
+	if err != nil {
+		return nil, fmt.Errorf("parsing template %v failed: %w", name, err)
+	}
+
+	buf := bytes.NewBuffer([]byte{})
+	err = t.Execute(buf, nil, data)
 	if err != nil {
 		return nil, err
 	}
