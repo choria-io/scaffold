@@ -58,7 +58,19 @@ var _ = Describe("Scaffold", func() {
 				TargetDirectory: targetDir,
 				Source:          map[string]any{"f": "c"},
 			}, nil)
-			Expect(err).To(MatchError("target directory exist"))
+			Expect(err).To(MatchError("target directory exists"))
+		})
+
+		It("Should allow existing target directory when MergeTargetDirectory is set", func() {
+			Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+
+			s, err := New(Config{
+				TargetDirectory:      targetDir,
+				MergeTargetDirectory: true,
+				Source:               map[string]any{"f": "c"},
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(s).ToNot(BeNil())
 		})
 
 		It("Should create a valid scaffold with in-memory source", func() {
@@ -116,7 +128,20 @@ var _ = Describe("Scaffold", func() {
 				TargetDirectory: targetDir,
 				Source:          map[string]any{"f": "c"},
 			}, nil)
-			Expect(err).To(MatchError("target directory exist"))
+			Expect(err).To(MatchError("target directory exists"))
+		})
+
+		It("Should allow existing target directory when MergeTargetDirectory is set", func() {
+			Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+
+			s, err := NewJet(Config{
+				TargetDirectory:      targetDir,
+				MergeTargetDirectory: true,
+				Source:               map[string]any{"f": "c"},
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(s).ToNot(BeNil())
+			Expect(s.engine).To(Equal(engineJet))
 		})
 
 		It("Should create a valid scaffold with in-memory source", func() {
@@ -517,7 +542,7 @@ var _ = Describe("Scaffold", func() {
 
 				info, err := os.Stat(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
-				Expect(info.Mode().Perm()).To(Equal(os.FileMode(0755)))
+				Expect(info.Mode().Perm()).To(Equal(os.FileMode(0644)))
 			})
 
 			It("Should append file as last argument when {} is not used", func() {
@@ -719,6 +744,155 @@ var _ = Describe("Scaffold", func() {
 			})
 		})
 
+		Context("With MergeTargetDirectory", func() {
+			It("Should render into an existing directory", func() {
+				Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+
+				s, err := New(Config{
+					TargetDirectory:      targetDir,
+					MergeTargetDirectory: true,
+					Source: map[string]any{
+						"hello.txt": "Hello {{ .Name }}",
+					},
+				}, template.FuncMap{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Hello World"))
+			})
+
+			It("Should preserve existing files in the target directory", func() {
+				Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+				Expect(os.WriteFile(filepath.Join(targetDir, "existing.txt"), []byte("keep me"), 0644)).To(Succeed())
+
+				s, err := New(Config{
+					TargetDirectory:      targetDir,
+					MergeTargetDirectory: true,
+					Source: map[string]any{
+						"new.txt": "new content",
+					},
+				}, template.FuncMap{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(nil)).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "existing.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("keep me"))
+
+				content, err = os.ReadFile(filepath.Join(targetDir, "new.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("new content"))
+			})
+
+			It("Should overwrite existing files with rendered content", func() {
+				Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+				Expect(os.WriteFile(filepath.Join(targetDir, "hello.txt"), []byte("old content"), 0644)).To(Succeed())
+
+				s, err := New(Config{
+					TargetDirectory:      targetDir,
+					MergeTargetDirectory: true,
+					Source: map[string]any{
+						"hello.txt": "Hello {{ .Name }}",
+					},
+				}, template.FuncMap{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Hello World"))
+			})
+
+			It("Should render with source directory into existing target", func() {
+				Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+				Expect(os.WriteFile(filepath.Join(targetDir, "existing.txt"), []byte("keep me"), 0644)).To(Succeed())
+
+				s, err := New(Config{
+					TargetDirectory:      targetDir,
+					MergeTargetDirectory: true,
+					SourceDirectory:      absTestdata("simple"),
+				}, template.FuncMap{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+
+				content, err := os.ReadFile(filepath.Join(targetDir, "existing.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("keep me"))
+
+				content, err = os.ReadFile(filepath.Join(targetDir, "hello.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("Hello World"))
+			})
+
+			It("Should track changed files correctly", func() {
+				Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+				Expect(os.WriteFile(filepath.Join(targetDir, "existing.txt"), []byte("keep me"), 0644)).To(Succeed())
+
+				s, err := New(Config{
+					TargetDirectory:      targetDir,
+					MergeTargetDirectory: true,
+					Source: map[string]any{
+						"new.txt": "new content",
+					},
+				}, template.FuncMap{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(nil)).To(Succeed())
+				Expect(s.ChangedFiles()).To(ConsistOf("new.txt"))
+			})
+
+			Context("With Jet engine", func() {
+				It("Should render into an existing directory", func() {
+					Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+
+					s, err := NewJet(Config{
+						TargetDirectory:      targetDir,
+						MergeTargetDirectory: true,
+						Source: map[string]any{
+							"hello.txt": "Hello {{ .Name }}",
+						},
+					}, map[string]jet.Func{})
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+
+					content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
+					Expect(err).ToNot(HaveOccurred())
+					Expect(string(content)).To(Equal("Hello World"))
+				})
+
+				It("Should preserve existing files in the target directory", func() {
+					Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+					Expect(os.WriteFile(filepath.Join(targetDir, "existing.txt"), []byte("keep me"), 0644)).To(Succeed())
+
+					s, err := NewJet(Config{
+						TargetDirectory:      targetDir,
+						MergeTargetDirectory: true,
+						Source: map[string]any{
+							"new.txt": "new content",
+						},
+					}, map[string]jet.Func{})
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(s.Render(nil)).To(Succeed())
+
+					content, err := os.ReadFile(filepath.Join(targetDir, "existing.txt"))
+					Expect(err).ToNot(HaveOccurred())
+					Expect(string(content)).To(Equal("keep me"))
+
+					content, err = os.ReadFile(filepath.Join(targetDir, "new.txt"))
+					Expect(err).ToNot(HaveOccurred())
+					Expect(string(content)).To(Equal("new content"))
+				})
+			})
+		})
+
 		It("Should create the target directory", func() {
 			s, err := New(Config{
 				TargetDirectory: targetDir,
@@ -915,6 +1089,123 @@ var _ = Describe("Scaffold", func() {
 
 			err = s.saveFile("/tmp/outside.txt", "content")
 			Expect(err).To(MatchError(ContainSubstring("is not in target directory")))
+		})
+
+		It("Should reject paths that share a directory name prefix", func() {
+			// Regression: target=/tmp/foo must not allow writes to /tmp/foobar/
+			td := filepath.Join(GinkgoT().TempDir(), "foo")
+			sibling := filepath.Join(GinkgoT().TempDir(), "foobar")
+			Expect(os.MkdirAll(td, 0700)).To(Succeed())
+			Expect(os.MkdirAll(sibling, 0700)).To(Succeed())
+
+			s, err := New(Config{
+				TargetDirectory:      td,
+				MergeTargetDirectory: true,
+				Source:               map[string]any{"f": "c"},
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = s.saveFile(filepath.Join(sibling, "evil.txt"), "bad")
+			Expect(err).To(MatchError(ContainSubstring("is not in target directory")))
+		})
+	})
+
+	Describe("containedInDir", func() {
+		It("Should match the directory itself", func() {
+			Expect(containedInDir("/tmp/foo", "/tmp/foo")).To(BeTrue())
+		})
+
+		It("Should match children", func() {
+			Expect(containedInDir("/tmp/foo/bar.txt", "/tmp/foo")).To(BeTrue())
+		})
+
+		It("Should reject sibling directories with shared prefix", func() {
+			Expect(containedInDir("/tmp/foobar/evil.txt", "/tmp/foo")).To(BeFalse())
+		})
+
+		It("Should reject parent paths", func() {
+			Expect(containedInDir("/tmp/evil.txt", "/tmp/foo")).To(BeFalse())
+		})
+	})
+
+	Describe("validateSourcePath", func() {
+		It("Should allow paths within the source directory", func() {
+			s := &Scaffold{workingSource: "/tmp/source"}
+			path, err := s.validateSourcePath("_partials/partial.txt")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(path).To(Equal(filepath.Join("/tmp/source", "_partials/partial.txt")))
+		})
+
+		It("Should reject paths that escape the source directory", func() {
+			s := &Scaffold{workingSource: "/tmp/source"}
+			_, err := s.validateSourcePath("../../../etc/passwd")
+			Expect(err).To(MatchError(ContainSubstring("is not in source directory")))
+		})
+
+		It("Should reject paths that use prefix tricks", func() {
+			s := &Scaffold{workingSource: "/tmp/source"}
+			_, err := s.validateSourcePath("../../sourcebar/evil.txt")
+			Expect(err).To(MatchError(ContainSubstring("is not in source directory")))
+		})
+	})
+
+	Describe("write template function path traversal", func() {
+		It("Should reject traversal via write in Go templates", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"evil.txt": `{{ write "../escape.txt" "bad" }}`,
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = s.Render(nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("is not in target directory"))
+		})
+
+		It("Should reject traversal via write in Jet templates", func() {
+			s, err := NewJet(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"evil.txt": `{{ write("../escape.txt", "bad") }}`,
+				},
+			}, map[string]jet.Func{})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = s.Render(nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("is not in target directory"))
+		})
+	})
+
+	Describe("render template function path traversal", func() {
+		It("Should reject traversal via render in Go templates", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"evil.txt": `{{ render "../../../etc/passwd" . }}`,
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = s.Render(nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("is not in source directory"))
+		})
+
+		It("Should reject traversal via render in Jet templates", func() {
+			s, err := NewJet(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"evil.txt": `{{ render("../../../etc/passwd", "x") }}`,
+				},
+			}, map[string]jet.Func{})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = s.Render(nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("is not in source directory"))
 		})
 	})
 })
