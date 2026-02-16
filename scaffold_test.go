@@ -1063,6 +1063,287 @@ var _ = Describe("Scaffold", func() {
 		})
 	})
 
+	Describe("RenderNoop", func() {
+		It("Should report all files as add when target does not exist", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"hello.txt": "Hello {{ .Name }}",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			plan, err := s.RenderNoop(map[string]any{"Name": "World"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "hello.txt", Action: FileActionAdd},
+			))
+		})
+
+		It("Should report nested directory files with correct actions", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"root.txt": "Root",
+					"sub": map[string]any{
+						"child.txt": "Child",
+					},
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			plan, err := s.RenderNoop(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "root.txt", Action: FileActionAdd},
+				PlannedFile{Path: "sub/child.txt", Action: FileActionAdd},
+			))
+		})
+
+		It("Should report a mix of add, update, and equal", func() {
+			Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(targetDir, "equal.txt"), []byte("same"), 0644)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(targetDir, "update.txt"), []byte("old content"), 0644)).To(Succeed())
+
+			s, err := New(Config{
+				TargetDirectory:      targetDir,
+				MergeTargetDirectory: true,
+				Source: map[string]any{
+					"equal.txt":  "same",
+					"update.txt": "new content",
+					"new.txt":    "brand new",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			plan, err := s.RenderNoop(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "equal.txt", Action: FileActionEqual},
+				PlannedFile{Path: "update.txt", Action: FileActionUpdate},
+				PlannedFile{Path: "new.txt", Action: FileActionAdd},
+			))
+		})
+
+		It("Should detect files to remove", func() {
+			Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(targetDir, "extra.txt"), []byte("leftover"), 0644)).To(Succeed())
+
+			s, err := New(Config{
+				TargetDirectory:      targetDir,
+				MergeTargetDirectory: true,
+				Source: map[string]any{
+					"hello.txt": "Hello",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			plan, err := s.RenderNoop(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "hello.txt", Action: FileActionAdd},
+				PlannedFile{Path: "extra.txt", Action: FileActionRemove},
+			))
+		})
+
+		It("Should detect equal files", func() {
+			Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(targetDir, "static.txt"), []byte("static content"), 0644)).To(Succeed())
+
+			s, err := New(Config{
+				TargetDirectory:      targetDir,
+				MergeTargetDirectory: true,
+				Source: map[string]any{
+					"static.txt": "static content",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			plan, err := s.RenderNoop(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "static.txt", Action: FileActionEqual},
+			))
+		})
+
+		It("Should exclude SkipEmpty files and report them as remove if in target", func() {
+			Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(targetDir, "maybe.txt"), []byte("old"), 0644)).To(Succeed())
+
+			s, err := New(Config{
+				TargetDirectory:      targetDir,
+				MergeTargetDirectory: true,
+				SkipEmpty:            true,
+				Source: map[string]any{
+					"maybe.txt":   "{{ if .Show }}content{{ end }}",
+					"present.txt": "always {{ .Name }}",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			plan, err := s.RenderNoop(map[string]any{"Name": "Test", "Show": false})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "present.txt", Action: FileActionAdd},
+				PlannedFile{Path: "maybe.txt", Action: FileActionRemove},
+			))
+		})
+
+		It("Should include files created by the write function", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"main.txt": `main{{ write "extra.txt" "extra content" }}`,
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			plan, err := s.RenderNoop(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "main.txt", Action: FileActionAdd},
+				PlannedFile{Path: "extra.txt", Action: FileActionAdd},
+			))
+		})
+
+		It("Should not write files to the real target", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"hello.txt": "Hello",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = s.RenderNoop(nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = os.Stat(targetDir)
+			Expect(os.IsNotExist(err)).To(BeTrue())
+		})
+
+		It("Should not mutate ChangedFiles", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"hello.txt": "Hello",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(s.Render(nil)).To(Succeed())
+			Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
+
+			// RenderNoop renders the same content so files are equal
+			plan, err := s.RenderNoop(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "hello.txt", Action: FileActionEqual},
+			))
+
+			// ChangedFiles preserved from the earlier Render call
+			Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
+		})
+
+		It("Should work with in-memory source", func() {
+			s, err := New(Config{
+				TargetDirectory: targetDir,
+				Source: map[string]any{
+					"a.txt": "alpha",
+					"b.txt": "beta",
+				},
+			}, template.FuncMap{})
+			Expect(err).ToNot(HaveOccurred())
+
+			plan, err := s.RenderNoop(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan).To(ConsistOf(
+				PlannedFile{Path: "a.txt", Action: FileActionAdd},
+				PlannedFile{Path: "b.txt", Action: FileActionAdd},
+			))
+		})
+
+		Context("With Jet engine", func() {
+			It("Should report all files as add when target does not exist", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					Source: map[string]any{
+						"hello.txt": "Hello {{ .Name }}",
+					},
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				plan, err := s.RenderNoop(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(plan).To(ConsistOf(
+					PlannedFile{Path: "hello.txt", Action: FileActionAdd},
+				))
+			})
+
+			It("Should detect a mix of actions", func() {
+				Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+				Expect(os.WriteFile(filepath.Join(targetDir, "equal.txt"), []byte("same"), 0644)).To(Succeed())
+				Expect(os.WriteFile(filepath.Join(targetDir, "update.txt"), []byte("old"), 0644)).To(Succeed())
+
+				s, err := NewJet(Config{
+					TargetDirectory:      targetDir,
+					MergeTargetDirectory: true,
+					Source: map[string]any{
+						"equal.txt":  "same",
+						"update.txt": "new",
+						"new.txt":    "added",
+					},
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				plan, err := s.RenderNoop(nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(plan).To(ConsistOf(
+					PlannedFile{Path: "equal.txt", Action: FileActionEqual},
+					PlannedFile{Path: "update.txt", Action: FileActionUpdate},
+					PlannedFile{Path: "new.txt", Action: FileActionAdd},
+				))
+			})
+
+			It("Should not mutate ChangedFiles", func() {
+				s, err := NewJet(Config{
+					TargetDirectory: targetDir,
+					Source: map[string]any{
+						"hello.txt": "Hello",
+					},
+				}, map[string]jet.Func{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(nil)).To(Succeed())
+				Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
+
+				plan, err := s.RenderNoop(nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(plan).To(ConsistOf(
+					PlannedFile{Path: "hello.txt", Action: FileActionEqual},
+				))
+
+				Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
+			})
+		})
+
+		Context("With source directory", func() {
+			It("Should report correct actions", func() {
+				s, err := New(Config{
+					TargetDirectory: targetDir,
+					SourceDirectory: absTestdata("simple"),
+				}, template.FuncMap{})
+				Expect(err).ToNot(HaveOccurred())
+
+				plan, err := s.RenderNoop(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(plan).To(ConsistOf(
+					PlannedFile{Path: "hello.txt", Action: FileActionAdd},
+				))
+			})
+		})
+	})
+
 	Describe("Logger", func() {
 		It("Should set the logger", func() {
 			s, err := New(Config{
