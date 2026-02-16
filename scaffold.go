@@ -66,6 +66,26 @@ type Scaffold struct {
 	changedFiles  []string
 }
 
+// New creates a new scaffold instance
+func New(cfg Config, funcs template.FuncMap) (*Scaffold, error) {
+	err := validateConfig(&cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Scaffold{cfg: &cfg, funcs: funcs}, nil
+}
+
+// NewJet creates a new scaffold instance using the Jet template engine
+func NewJet(cfg Config, funcs map[string]jet.Func) (*Scaffold, error) {
+	err := validateConfig(&cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Scaffold{cfg: &cfg, engine: engineJet, jetFuncs: funcs}, nil
+}
+
 func validateConfig(cfg *Config) error {
 	if cfg.TargetDirectory == "" {
 		return fmt.Errorf("target is required")
@@ -88,29 +108,14 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
-	if _, err := os.Stat(cfg.TargetDirectory); !os.IsNotExist(err) {
-		return fmt.Errorf("target directory exist")
+	if !cfg.MergeTargetDirectory {
+		_, err := os.Stat(cfg.TargetDirectory)
+		if err == nil {
+			return fmt.Errorf("target directory exists")
+		}
 	}
 
 	return nil
-}
-
-// New creates a new scaffold instance
-func New(cfg Config, funcs template.FuncMap) (*Scaffold, error) {
-	if err := validateConfig(&cfg); err != nil {
-		return nil, err
-	}
-
-	return &Scaffold{cfg: &cfg, funcs: funcs}, nil
-}
-
-// NewJet creates a new scaffold instance using the Jet template engine
-func NewJet(cfg Config, funcs map[string]jet.Func) (*Scaffold, error) {
-	if err := validateConfig(&cfg); err != nil {
-		return nil, err
-	}
-
-	return &Scaffold{cfg: &cfg, engine: engineJet, jetFuncs: funcs}, nil
 }
 
 // RenderString renders a string using the same functions and behavior as the scaffold, including custom delimiters
@@ -224,10 +229,6 @@ func (s *Scaffold) renderAndPostFile(out string, t string, data any) error {
 }
 
 func (s *Scaffold) templateFuncs() template.FuncMap {
-	if s.funcs == nil {
-		return nil
-	}
-
 	funcs := sprig.FuncMap()
 	for k, v := range s.funcs {
 		funcs[k] = v
@@ -239,7 +240,11 @@ func (s *Scaffold) templateFuncs() template.FuncMap {
 	}
 
 	funcs["render"] = func(templ string, data any) (string, error) {
-		res, err := s.renderTemplateFile(filepath.Join(s.workingSource, templ), data)
+		path, err := s.validateSourcePath(templ)
+		if err != nil {
+			return "", err
+		}
+		res, err := s.renderTemplateFile(path, data)
 		return string(res), err
 	}
 
@@ -273,7 +278,12 @@ func (s *Scaffold) jetTemplateFuncs() map[string]jet.Func {
 		templ := args.Get(0).String()
 		data := args.Get(1).Interface()
 
-		res, err := s.renderTemplateFile(filepath.Join(s.workingSource, templ), data)
+		path, err := s.validateSourcePath(templ)
+		if err != nil {
+			args.Panicf("render: %v", err)
+		}
+
+		res, err := s.renderTemplateFile(path, data)
 		if err != nil {
 			args.Panicf("render: %v", err)
 		}
@@ -316,7 +326,7 @@ func (s *Scaffold) renderTemplateBytesGoTempl(name string, tmpl []byte, data any
 
 	templ, err := templ.Parse(string(tmpl))
 	if err != nil {
-		return nil, fmt.Errorf("parsing template %v failed: %w", tmpl, err)
+		return nil, fmt.Errorf("parsing template %v failed: %w", name, err)
 	}
 
 	err = templ.Execute(buf, data)
@@ -364,17 +374,41 @@ func (s *Scaffold) renderTemplateBytesJet(name string, tmpl []byte, data any) ([
 	return buf.Bytes(), nil
 }
 
+func containedInDir(path string, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+}
+
+func (s *Scaffold) validateSourcePath(name string) (string, error) {
+	path := filepath.Join(s.workingSource, name)
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid source path %s: %v", name, err)
+	}
+
+	absSource, err := filepath.Abs(s.workingSource)
+	if err != nil {
+		return "", fmt.Errorf("invalid source directory: %v", err)
+	}
+
+	if !containedInDir(absPath, absSource) {
+		return "", fmt.Errorf("%s is not in source directory %s", name, s.workingSource)
+	}
+
+	return path, nil
+}
+
 func (s *Scaffold) saveFile(out string, content string) error {
 	absOut, err := filepath.Abs(out)
 	if err != nil {
 		return err
 	}
 
-	if !strings.HasPrefix(absOut, s.cfg.TargetDirectory) {
+	if !containedInDir(absOut, s.cfg.TargetDirectory) {
 		return fmt.Errorf("%s is not in target directory %s", out, s.cfg.TargetDirectory)
 	}
 
-	err = os.WriteFile(out, []byte(content), 0755)
+	err = os.WriteFile(out, []byte(content), 0644)
 	if err != nil {
 		return err
 	}
@@ -409,19 +443,24 @@ func (s *Scaffold) postFile(f string) error {
 				continue
 			}
 
-			cmd := ""
-			var args []string
-
-			parts, err := shellquote.Split(strings.ReplaceAll(v, "{}", f))
+			parts, err := shellquote.Split(v)
 			if err != nil {
 				return err
 			}
-			cmd = parts[0]
-			if len(parts) > 1 {
-				args = append(args, parts[1:]...)
+
+			cmd := parts[0]
+			var args []string
+			hasPlaceholder := false
+			for _, p := range parts[1:] {
+				if strings.Contains(p, "{}") {
+					args = append(args, strings.ReplaceAll(p, "{}", f))
+					hasPlaceholder = true
+				} else {
+					args = append(args, p)
+				}
 			}
 
-			if !strings.Contains(v, "{}") {
+			if !hasPlaceholder {
 				args = append(args, f)
 			}
 
@@ -450,7 +489,7 @@ func (s *Scaffold) ChangedFiles() []string {
 func (s *Scaffold) Render(data any) error {
 	s.changedFiles = nil
 
-	err := os.MkdirAll(s.cfg.TargetDirectory, 0770)
+	err := os.MkdirAll(s.cfg.TargetDirectory, 0755)
 	if err != nil {
 		return err
 	}
@@ -500,7 +539,7 @@ func (s *Scaffold) Render(data any) error {
 		out := filepath.Join(s.cfg.TargetDirectory, strings.TrimPrefix(path, s.workingSource))
 		switch {
 		case d.IsDir():
-			err := os.Mkdir(out, 0775)
+			err := os.Mkdir(out, 0755)
 			if err != nil {
 				return err
 			}
