@@ -6,13 +6,16 @@ package scaffold
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -54,6 +57,22 @@ const (
 	engineGoTemplate engineType = iota
 	engineJet
 )
+
+// FileAction represents the type of change a file would undergo during rendering
+type FileAction string
+
+const (
+	FileActionAdd    FileAction = "add"
+	FileActionUpdate FileAction = "update"
+	FileActionEqual  FileAction = "equal"
+	FileActionRemove FileAction = "remove"
+)
+
+// PlannedFile represents a file and the action that would be taken on it during rendering
+type PlannedFile struct {
+	Path   string
+	Action FileAction
+}
 
 type Scaffold struct {
 	cfg           *Config
@@ -483,6 +502,127 @@ func (s *Scaffold) postFile(f string) error {
 // always use forward slashes as separators.
 func (s *Scaffold) ChangedFiles() []string {
 	return s.changedFiles
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// RenderNoop performs a full render into a temporary directory and compares the
+// result against the real target directory. It returns a list of files with
+// their planned action (add, update, equal, remove) without modifying the real
+// target. The caller's ChangedFiles state is preserved.
+func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
+	origTarget := s.cfg.TargetDirectory
+	origMerge := s.cfg.MergeTargetDirectory
+	origChanged := s.changedFiles
+
+	tmpBase, err := os.MkdirTemp("", "scaffold-noop-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpBase)
+
+	tmpTarget := filepath.Join(tmpBase, "target")
+	s.cfg.TargetDirectory = tmpTarget
+	s.cfg.MergeTargetDirectory = false
+
+	renderErr := s.Render(data)
+
+	s.cfg.TargetDirectory = origTarget
+	s.cfg.MergeTargetDirectory = origMerge
+	s.changedFiles = origChanged
+
+	if renderErr != nil {
+		return nil, renderErr
+	}
+
+	// Build set of rendered file paths
+	rendered := map[string]string{} // relative slash path -> absolute path in temp
+	err = filepath.WalkDir(tmpTarget, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(tmpTarget, path)
+		if err != nil {
+			return err
+		}
+		rendered[filepath.ToSlash(rel)] = path
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Compare rendered files against real target
+	var result []PlannedFile
+	for rel, tmpPath := range rendered {
+		realPath := filepath.Join(origTarget, filepath.FromSlash(rel))
+		_, statErr := os.Stat(realPath)
+		if os.IsNotExist(statErr) {
+			result = append(result, PlannedFile{Path: rel, Action: FileActionAdd})
+		} else if statErr != nil {
+			return nil, statErr
+		} else {
+			tmpHash, err := sha256File(tmpPath)
+			if err != nil {
+				return nil, err
+			}
+			realHash, err := sha256File(realPath)
+			if err != nil {
+				return nil, err
+			}
+			if tmpHash == realHash {
+				result = append(result, PlannedFile{Path: rel, Action: FileActionEqual})
+			} else {
+				result = append(result, PlannedFile{Path: rel, Action: FileActionUpdate})
+			}
+		}
+	}
+
+	// Walk real target to find files not in rendered output
+	if _, err := os.Stat(origTarget); err == nil {
+		err = filepath.WalkDir(origTarget, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(origTarget, path)
+			if err != nil {
+				return err
+			}
+			relSlash := filepath.ToSlash(rel)
+			if _, ok := rendered[relSlash]; !ok {
+				result = append(result, PlannedFile{Path: relSlash, Action: FileActionRemove})
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Path < result[j].Path
+	})
+
+	return result, nil
 }
 
 // Render creates the target directory and place all files into it after template processing and post-processing
