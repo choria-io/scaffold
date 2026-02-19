@@ -81,7 +81,6 @@ type Scaffold struct {
 	jetFuncs      map[string]jet.Func
 	log           Logger
 	workingSource string
-	currentDir    string
 	changedFiles  []string
 }
 
@@ -519,13 +518,74 @@ func sha256File(path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
+func atomicCopyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".scaffold-tmp-")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		// clean up temp file on any failure path
+		os.Remove(tmpName)
+	}()
+
+	if _, err := io.Copy(tmp, srcFile); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Chmod(tmpName, srcInfo.Mode().Perm()); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpName, dst)
+}
+
+func copyTreeToTarget(tmpDir, realTarget string) error {
+	return filepath.WalkDir(tmpDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(tmpDir, path)
+		if err != nil {
+			return err
+		}
+
+		dst := filepath.Join(realTarget, rel)
+
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0755)
+		}
+
+		if d.Type().IsRegular() {
+			return atomicCopyFile(path, dst)
+		}
+
+		return nil
+	})
+}
+
 // RenderNoop performs a full render into a temporary directory and compares the
 // result against the real target directory. It returns a list of files with
 // their planned action (add, update, equal, remove) without modifying the real
 // target. The caller's ChangedFiles state is preserved.
 func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
-	origTarget := s.cfg.TargetDirectory
-	origMerge := s.cfg.MergeTargetDirectory
+	realTarget := s.cfg.TargetDirectory
 	origChanged := s.changedFiles
 
 	tmpBase, err := os.MkdirTemp("", "scaffold-noop-")
@@ -535,13 +595,9 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 	defer os.RemoveAll(tmpBase)
 
 	tmpTarget := filepath.Join(tmpBase, "target")
-	s.cfg.TargetDirectory = tmpTarget
-	s.cfg.MergeTargetDirectory = false
 
-	renderErr := s.Render(data)
+	renderErr := s.renderToDir(tmpTarget, data)
 
-	s.cfg.TargetDirectory = origTarget
-	s.cfg.MergeTargetDirectory = origMerge
 	s.changedFiles = origChanged
 
 	if renderErr != nil {
@@ -571,7 +627,7 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 	// Compare rendered files against real target
 	var result []PlannedFile
 	for rel, tmpPath := range rendered {
-		realPath := filepath.Join(origTarget, filepath.FromSlash(rel))
+		realPath := filepath.Join(realTarget, filepath.FromSlash(rel))
 		_, statErr := os.Stat(realPath)
 		if os.IsNotExist(statErr) {
 			result = append(result, PlannedFile{Path: rel, Action: FileActionAdd})
@@ -595,15 +651,15 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 	}
 
 	// Walk real target to find files not in rendered output
-	if _, err := os.Stat(origTarget); err == nil {
-		err = filepath.WalkDir(origTarget, func(path string, d fs.DirEntry, err error) error {
+	if _, err := os.Stat(realTarget); err == nil {
+		err = filepath.WalkDir(realTarget, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
 			if d.IsDir() {
 				return nil
 			}
-			rel, err := filepath.Rel(origTarget, path)
+			rel, err := filepath.Rel(realTarget, path)
 			if err != nil {
 				return err
 			}
@@ -625,30 +681,23 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 	return result, nil
 }
 
-// Render creates the target directory and place all files into it after template processing and post-processing
-func (s *Scaffold) Render(data any) error {
-	s.changedFiles = nil
+// renderToDir renders all templates into the specified directory, running
+// post-processing on the rendered files. It temporarily sets TargetDirectory
+// to dir so that saveFile containment checks, the write() template func,
+// and changedFiles tracking all operate against dir.
+func (s *Scaffold) renderToDir(dir string, data any) error {
+	origTarget := s.cfg.TargetDirectory
+	s.cfg.TargetDirectory = dir
+	defer func() { s.cfg.TargetDirectory = origTarget }()
 
-	err := os.MkdirAll(s.cfg.TargetDirectory, 0755)
+	err := os.MkdirAll(dir, 0755)
 	if err != nil {
 		return err
 	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-
-	err = os.Chdir(s.cfg.TargetDirectory)
-	if err != nil {
-		return err
-	}
-	defer os.Chdir(cwd)
 
 	s.workingSource = s.cfg.SourceDirectory
 
 	if s.workingSource == "" {
-		// move the memory source to temp dir
 		s.workingSource, err = s.createTempDirForSource()
 		if err != nil {
 			return err
@@ -659,11 +708,7 @@ func (s *Scaffold) Render(data any) error {
 		}()
 	}
 
-	s.currentDir = s.cfg.TargetDirectory
-	defer func() { s.currentDir = "" }()
-
-	// now render both the same way
-	err = filepath.WalkDir(s.workingSource, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(s.workingSource, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -676,30 +721,41 @@ func (s *Scaffold) Render(data any) error {
 			return filepath.SkipDir
 		}
 
-		out := filepath.Join(s.cfg.TargetDirectory, strings.TrimPrefix(path, s.workingSource))
+		out := filepath.Join(dir, strings.TrimPrefix(path, s.workingSource))
 		switch {
 		case d.IsDir():
-			err := os.Mkdir(out, 0755)
-			if err != nil {
-				return err
-			}
+			return os.MkdirAll(out, 0755)
 
 		case d.Type().IsRegular():
-			s.currentDir = filepath.Dir(out)
-			err = s.renderAndPostFile(out, path, data)
-			if err != nil {
-				return err
-			}
+			return s.renderAndPostFile(out, path, data)
 
 		default:
 			return fmt.Errorf("invalid file in source: %v", d.Name())
 		}
-
-		return nil
 	})
+}
+
+// Render creates the target directory and places all files into it after
+// template processing and post-processing. Files are rendered into a temporary
+// directory first, then atomically copied to the real target.
+func (s *Scaffold) Render(data any) error {
+	s.changedFiles = nil
+
+	tmpDir, err := os.MkdirTemp("", "scaffold-render-")
 	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(tmpDir)
 
-	return nil
+	tmpTarget := filepath.Join(tmpDir, "target")
+
+	if err := s.renderToDir(tmpTarget, data); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(s.cfg.TargetDirectory, 0755); err != nil {
+		return err
+	}
+
+	return copyTreeToTarget(tmpTarget, s.cfg.TargetDirectory)
 }
