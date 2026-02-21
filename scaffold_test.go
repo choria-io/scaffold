@@ -847,6 +847,51 @@ var _ = Describe("Scaffold", func() {
 				Expect(s.ChangedFiles()).To(ConsistOf("new.txt"))
 			})
 
+			It("Should skip copying unchanged files", func() {
+				Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
+				Expect(os.WriteFile(filepath.Join(targetDir, "same.txt"), []byte("same content"), 0644)).To(Succeed())
+				Expect(os.WriteFile(filepath.Join(targetDir, "changed.txt"), []byte("old content"), 0644)).To(Succeed())
+
+				sameInfo, err := os.Stat(filepath.Join(targetDir, "same.txt"))
+				Expect(err).ToNot(HaveOccurred())
+
+				s, err := New(Config{
+					TargetDirectory:      targetDir,
+					MergeTargetDirectory: true,
+					Source: map[string]any{
+						"same.txt":    "same content",
+						"changed.txt": "new content",
+						"added.txt":   "brand new",
+					},
+				}, template.FuncMap{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(s.Render(nil)).To(Succeed())
+
+				// unchanged file should not appear in ChangedFiles
+				Expect(s.ChangedFiles()).To(ConsistOf("changed.txt", "added.txt"))
+
+				// unchanged file should still have original content
+				content, err := os.ReadFile(filepath.Join(targetDir, "same.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("same content"))
+
+				// unchanged file should not have been rewritten (mod time preserved)
+				newSameInfo, err := os.Stat(filepath.Join(targetDir, "same.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(newSameInfo.ModTime()).To(Equal(sameInfo.ModTime()))
+
+				// changed file should have new content
+				content, err = os.ReadFile(filepath.Join(targetDir, "changed.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("new content"))
+
+				// new file should exist
+				content, err = os.ReadFile(filepath.Join(targetDir, "added.txt"))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(string(content)).To(Equal("brand new"))
+			})
+
 			Context("With Jet engine", func() {
 				It("Should render into an existing directory", func() {
 					Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
