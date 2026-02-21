@@ -555,8 +555,10 @@ func atomicCopyFile(src, dst string) error {
 	return os.Rename(tmpName, dst)
 }
 
-func copyTreeToTarget(tmpDir, realTarget string) error {
-	return filepath.WalkDir(tmpDir, func(path string, d fs.DirEntry, err error) error {
+func copyTreeToTarget(tmpDir, realTarget string, log Logger) ([]string, error) {
+	var changed []string
+
+	err := filepath.WalkDir(tmpDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -573,11 +575,33 @@ func copyTreeToTarget(tmpDir, realTarget string) error {
 		}
 
 		if d.Type().IsRegular() {
-			return atomicCopyFile(path, dst)
+			if _, statErr := os.Stat(dst); statErr == nil {
+				srcHash, err := sha256File(path)
+				if err != nil {
+					return err
+				}
+				dstHash, err := sha256File(dst)
+				if err != nil {
+					return err
+				}
+				if srcHash == dstHash {
+					if log != nil {
+						log.Debugf("Skipping unchanged file %s", rel)
+					}
+					return nil
+				}
+			}
+
+			if err := atomicCopyFile(path, dst); err != nil {
+				return err
+			}
+			changed = append(changed, filepath.ToSlash(rel))
 		}
 
 		return nil
 	})
+
+	return changed, err
 }
 
 // RenderNoop performs a full render into a temporary directory and compares the
@@ -757,5 +781,12 @@ func (s *Scaffold) Render(data any) error {
 		return err
 	}
 
-	return copyTreeToTarget(tmpTarget, s.cfg.TargetDirectory)
+	changed, err := copyTreeToTarget(tmpTarget, s.cfg.TargetDirectory, s.log)
+	if err != nil {
+		return err
+	}
+
+	s.changedFiles = changed
+
+	return nil
 }
