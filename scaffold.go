@@ -401,8 +401,14 @@ func (s *Scaffold) renderTemplateBytesJet(name string, tmpl []byte, data any) ([
 		return nil, fmt.Errorf("parsing template %v failed: %w", name, err)
 	}
 
+	var vm jet.VarMap
+	_, ok := data.(jet.VarMap)
+	if ok {
+		vm = data.(jet.VarMap)
+	}
+
 	buf := bytes.NewBuffer([]byte{})
-	err = t.Execute(buf, nil, data)
+	err = t.Execute(buf, vm, data)
 	if err != nil {
 		return nil, err
 	}
