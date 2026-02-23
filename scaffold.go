@@ -236,7 +236,7 @@ func (s *Scaffold) saveAndPostFile(f string, data string) error {
 	}
 
 	if s.log != nil {
-		s.log.Infof("Rendered %s", f)
+		s.log.Debugf("Rendered %s", f)
 	}
 
 	return nil
@@ -247,7 +247,7 @@ func (s *Scaffold) renderAndPostFile(out string, t string, data any) error {
 	switch {
 	case errors.Is(err, errSkippedEmpty):
 		if s.log != nil {
-			s.log.Infof("Skipping empty file %v", out)
+			s.log.Debugf("Skipping empty file %v", out)
 		}
 
 		return nil
@@ -504,7 +504,7 @@ func (s *Scaffold) postFile(f string) error {
 			}
 
 			if s.log != nil {
-				s.log.Infof("Post processing using: %s %s", cmd, strings.Join(args, " "))
+				s.log.Debugf("Post processing using: %s %s", cmd, strings.Join(args, " "))
 			}
 
 			out, err := exec.Command(cmd, args...).CombinedOutput()
