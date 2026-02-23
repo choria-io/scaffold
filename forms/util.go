@@ -27,10 +27,10 @@ func propertyEmptyVal(p Property) any {
 		return map[string]any{}
 	}
 }
-func askConfirmation(prompt string, dflt bool) (bool, error) {
+func (p *processor) askConfirmation(prompt string, dflt bool) (bool, error) {
 	ans := dflt
 
-	err := survey.AskOne(&survey.Confirm{
+	err := p.surveyor.AskOne(&survey.Confirm{
 		Message: prompt,
 		Default: dflt,
 	}, &ans)
