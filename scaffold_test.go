@@ -326,7 +326,11 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				result, err := s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "hello.txt", Action: FileActionAdd},
+				))
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -340,7 +344,12 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Top", "Value": "Deep"})).To(Succeed())
+				result, err := s.Render(map[string]any{"Name": "Top", "Value": "Deep"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "sub/deep.txt", Action: FileActionAdd},
+					ManagedFile{Path: "top.txt", Action: FileActionAdd},
+				))
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "top.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -358,7 +367,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Test"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Test"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "main.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -377,7 +387,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "greeting.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -392,7 +403,11 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
+				result, err := s.Render(map[string]any{"Name": "Test", "Show": false})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "present.txt", Action: FileActionAdd},
+				))
 
 				_, err = os.Stat(filepath.Join(targetDir, "maybe.txt"))
 				Expect(os.IsNotExist(err)).To(BeTrue())
@@ -409,7 +424,12 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
+				result, err := s.Render(map[string]any{"Name": "Test", "Show": false})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "maybe.txt", Action: FileActionAdd},
+					ManagedFile{Path: "present.txt", Action: FileActionAdd},
+				))
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "maybe.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -423,7 +443,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Rendered"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Rendered"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "output.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -437,7 +458,12 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(nil)).To(Succeed())
+				result, err := s.Render(nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "extra.txt", Action: FileActionAdd},
+					ManagedFile{Path: "main.txt", Action: FileActionAdd},
+				))
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "main.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -459,7 +485,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Memory"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Memory"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -478,7 +505,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Top", "Value": "Nested"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Top", "Value": "Nested"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "root.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -497,7 +525,7 @@ var _ = Describe("Scaffold", func() {
 					}, template.FuncMap{})
 					Expect(err).ToNot(HaveOccurred())
 
-					err = s.Render(nil)
+					_, err = s.Render(nil)
 					Expect(err).To(MatchError(ContainSubstring(errMatch)))
 				},
 				Entry("filename with ..",
@@ -523,7 +551,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(nil)).To(Succeed())
+				_, err = s.Render(nil)
+				Expect(err).ToNot(HaveOccurred())
 				Expect(s.workingSource).To(Equal(""))
 			})
 		})
@@ -539,7 +568,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				info, err := os.Stat(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -556,7 +586,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				info, err := os.Stat(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -573,7 +604,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				info, err := os.Stat(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -590,7 +622,7 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				err = s.Render(map[string]any{"Name": "World"})
+				_, err = s.Render(map[string]any{"Name": "World"})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to post process"))
 			})
@@ -604,7 +636,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -618,7 +651,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Top", "Value": "Deep"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Top", "Value": "Deep"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "top.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -636,7 +670,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Test"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Test"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "main.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -655,7 +690,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "greeting.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -670,7 +706,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Test", "Show": false})
+				Expect(err).ToNot(HaveOccurred())
 
 				_, err = os.Stat(filepath.Join(targetDir, "maybe.txt"))
 				Expect(os.IsNotExist(err)).To(BeTrue())
@@ -687,7 +724,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Rendered"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Rendered"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "output.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -701,7 +739,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(nil)).To(Succeed())
+				_, err = s.Render(nil)
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "main.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -721,7 +760,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Memory"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "Memory"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -738,7 +778,8 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				info, err := os.Stat(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -754,7 +795,8 @@ var _ = Describe("Scaffold", func() {
 				}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(nil)).To(Succeed())
+				_, err = s.Render(nil)
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "plain.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -775,7 +817,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -795,7 +838,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(nil)).To(Succeed())
+				_, err = s.Render(nil)
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "existing.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -819,7 +863,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -837,7 +882,8 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+				_, err = s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
 
 				content, err := os.ReadFile(filepath.Join(targetDir, "existing.txt"))
 				Expect(err).ToNot(HaveOccurred())
@@ -848,7 +894,7 @@ var _ = Describe("Scaffold", func() {
 				Expect(string(content)).To(Equal("Hello World"))
 			})
 
-			It("Should track changed files correctly", func() {
+			It("Should return managed files with correct actions", func() {
 				Expect(os.MkdirAll(targetDir, 0700)).To(Succeed())
 				Expect(os.WriteFile(filepath.Join(targetDir, "existing.txt"), []byte("keep me"), 0644)).To(Succeed())
 
@@ -861,8 +907,11 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(nil)).To(Succeed())
-				Expect(s.ChangedFiles()).To(ConsistOf("new.txt"))
+				result, err := s.Render(nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "new.txt", Action: FileActionAdd},
+				))
 			})
 
 			It("Should skip copying unchanged files", func() {
@@ -884,10 +933,13 @@ var _ = Describe("Scaffold", func() {
 				}, template.FuncMap{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(nil)).To(Succeed())
-
-				// unchanged file should not appear in ChangedFiles
-				Expect(s.ChangedFiles()).To(ConsistOf("changed.txt", "added.txt"))
+				result, err := s.Render(nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "added.txt", Action: FileActionAdd},
+					ManagedFile{Path: "changed.txt", Action: FileActionUpdate},
+					ManagedFile{Path: "same.txt", Action: FileActionEqual},
+				))
 
 				// unchanged file should still have original content
 				content, err := os.ReadFile(filepath.Join(targetDir, "same.txt"))
@@ -923,7 +975,8 @@ var _ = Describe("Scaffold", func() {
 					}, map[string]jet.Func{})
 					Expect(err).ToNot(HaveOccurred())
 
-					Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
+					_, err = s.Render(map[string]any{"Name": "World"})
+					Expect(err).ToNot(HaveOccurred())
 
 					content, err := os.ReadFile(filepath.Join(targetDir, "hello.txt"))
 					Expect(err).ToNot(HaveOccurred())
@@ -943,7 +996,8 @@ var _ = Describe("Scaffold", func() {
 					}, map[string]jet.Func{})
 					Expect(err).ToNot(HaveOccurred())
 
-					Expect(s.Render(nil)).To(Succeed())
+					_, err = s.Render(nil)
+					Expect(err).ToNot(HaveOccurred())
 
 					content, err := os.ReadFile(filepath.Join(targetDir, "existing.txt"))
 					Expect(err).ToNot(HaveOccurred())
@@ -965,7 +1019,8 @@ var _ = Describe("Scaffold", func() {
 			}, template.FuncMap{})
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(s.Render(nil)).To(Succeed())
+			_, err = s.Render(nil)
+			Expect(err).ToNot(HaveOccurred())
 
 			info, err := os.Stat(targetDir)
 			Expect(err).ToNot(HaveOccurred())
@@ -981,81 +1036,30 @@ var _ = Describe("Scaffold", func() {
 			}, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(s.Render(nil)).To(Succeed())
+			_, err = s.Render(nil)
+			Expect(err).ToNot(HaveOccurred())
 
 			content, err := os.ReadFile(filepath.Join(targetDir, "plain.txt"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(string(content)).To(Equal("no templates here"))
 		})
-	})
 
-	Describe("ChangedFiles", func() {
-		It("Should be empty before any render", func() {
-			s, err := New(Config{
-				TargetDirectory: targetDir,
-				Source:          map[string]any{"f": "c"},
-			}, template.FuncMap{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(s.ChangedFiles()).To(BeNil())
-		})
-
-		It("Should track rendered files", func() {
-			s, err := New(Config{
-				TargetDirectory: targetDir,
-				SourceDirectory: absTestdata("simple"),
-			}, template.FuncMap{})
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
-			Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
-		})
-
-		It("Should use forward slashes for nested paths", func() {
+		It("Should return managed files with forward slashes for nested paths", func() {
 			s, err := New(Config{
 				TargetDirectory: targetDir,
 				SourceDirectory: absTestdata("nested"),
 			}, template.FuncMap{})
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(s.Render(map[string]any{"Name": "Top", "Value": "Deep"})).To(Succeed())
-			Expect(s.ChangedFiles()).To(ConsistOf("top.txt", "sub/deep.txt"))
-		})
-
-		It("Should exclude skipped empty files", func() {
-			s, err := New(Config{
-				TargetDirectory: targetDir,
-				SourceDirectory: absTestdata("with_empty"),
-				SkipEmpty:       true,
-			}, template.FuncMap{})
+			result, err := s.Render(map[string]any{"Name": "Top", "Value": "Deep"})
 			Expect(err).ToNot(HaveOccurred())
-
-			Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
-			Expect(s.ChangedFiles()).To(ConsistOf("present.txt"))
+			Expect(result).To(ConsistOf(
+				ManagedFile{Path: "sub/deep.txt", Action: FileActionAdd},
+				ManagedFile{Path: "top.txt", Action: FileActionAdd},
+			))
 		})
 
-		It("Should include all files when SkipEmpty is not set", func() {
-			s, err := New(Config{
-				TargetDirectory: targetDir,
-				SourceDirectory: absTestdata("with_empty"),
-			}, template.FuncMap{})
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
-			Expect(s.ChangedFiles()).To(ConsistOf("maybe.txt", "present.txt"))
-		})
-
-		It("Should include files created by the write function", func() {
-			s, err := New(Config{
-				TargetDirectory: targetDir,
-				SourceDirectory: absTestdata("with_write"),
-			}, template.FuncMap{})
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(s.Render(nil)).To(Succeed())
-			Expect(s.ChangedFiles()).To(ConsistOf("main.txt", "extra.txt"))
-		})
-
-		It("Should reset between renders", func() {
+		It("Should return independent results between renders", func() {
 			s, err := New(Config{
 				TargetDirectory: targetDir,
 				Source: map[string]any{
@@ -1064,8 +1068,11 @@ var _ = Describe("Scaffold", func() {
 			}, template.FuncMap{})
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(s.Render(nil)).To(Succeed())
-			Expect(s.ChangedFiles()).To(ConsistOf("first.txt"))
+			result, err := s.Render(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).To(ConsistOf(
+				ManagedFile{Path: "first.txt", Action: FileActionAdd},
+			))
 
 			// second render into a new target
 			secondTarget := filepath.Join(GinkgoT().TempDir(), "target2")
@@ -1074,31 +1081,41 @@ var _ = Describe("Scaffold", func() {
 				"second.txt": "two",
 			}
 
-			Expect(s.Render(nil)).To(Succeed())
-			Expect(s.ChangedFiles()).To(ConsistOf("second.txt"))
+			result, err = s.Render(nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).To(ConsistOf(
+				ManagedFile{Path: "second.txt", Action: FileActionAdd},
+			))
 		})
 
-		Context("With Jet engine", func() {
-			It("Should track rendered files", func() {
+		Context("With Jet engine return values", func() {
+			It("Should return managed files", func() {
 				s, err := NewJet(Config{
 					TargetDirectory: targetDir,
 					SourceDirectory: absTestdata("simple"),
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "World"})).To(Succeed())
-				Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
+				result, err := s.Render(map[string]any{"Name": "World"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "hello.txt", Action: FileActionAdd},
+				))
 			})
 
-			It("Should use forward slashes for nested paths", func() {
+			It("Should return managed files with forward slashes for nested paths", func() {
 				s, err := NewJet(Config{
 					TargetDirectory: targetDir,
 					SourceDirectory: absTestdata("nested"),
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Top", "Value": "Deep"})).To(Succeed())
-				Expect(s.ChangedFiles()).To(ConsistOf("top.txt", "sub/deep.txt"))
+				result, err := s.Render(map[string]any{"Name": "Top", "Value": "Deep"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "sub/deep.txt", Action: FileActionAdd},
+					ManagedFile{Path: "top.txt", Action: FileActionAdd},
+				))
 			})
 
 			It("Should exclude skipped empty files", func() {
@@ -1109,8 +1126,11 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(map[string]any{"Name": "Test", "Show": false})).To(Succeed())
-				Expect(s.ChangedFiles()).To(ConsistOf("present.txt"))
+				result, err := s.Render(map[string]any{"Name": "Test", "Show": false})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "present.txt", Action: FileActionAdd},
+				))
 			})
 
 			It("Should include files created by the write function", func() {
@@ -1120,8 +1140,12 @@ var _ = Describe("Scaffold", func() {
 				}, map[string]jet.Func{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(s.Render(nil)).To(Succeed())
-				Expect(s.ChangedFiles()).To(ConsistOf("main.txt", "extra.txt"))
+				result, err := s.Render(nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "extra.txt", Action: FileActionAdd},
+					ManagedFile{Path: "main.txt", Action: FileActionAdd},
+				))
 			})
 		})
 	})
@@ -1139,7 +1163,7 @@ var _ = Describe("Scaffold", func() {
 			plan, err := s.RenderNoop(map[string]any{"Name": "World"})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "hello.txt", Action: FileActionAdd},
+				ManagedFile{Path: "hello.txt", Action: FileActionAdd},
 			))
 		})
 
@@ -1158,8 +1182,8 @@ var _ = Describe("Scaffold", func() {
 			plan, err := s.RenderNoop(nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "root.txt", Action: FileActionAdd},
-				PlannedFile{Path: "sub/child.txt", Action: FileActionAdd},
+				ManagedFile{Path: "root.txt", Action: FileActionAdd},
+				ManagedFile{Path: "sub/child.txt", Action: FileActionAdd},
 			))
 		})
 
@@ -1182,9 +1206,9 @@ var _ = Describe("Scaffold", func() {
 			plan, err := s.RenderNoop(nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "equal.txt", Action: FileActionEqual},
-				PlannedFile{Path: "update.txt", Action: FileActionUpdate},
-				PlannedFile{Path: "new.txt", Action: FileActionAdd},
+				ManagedFile{Path: "equal.txt", Action: FileActionEqual},
+				ManagedFile{Path: "update.txt", Action: FileActionUpdate},
+				ManagedFile{Path: "new.txt", Action: FileActionAdd},
 			))
 		})
 
@@ -1204,8 +1228,8 @@ var _ = Describe("Scaffold", func() {
 			plan, err := s.RenderNoop(nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "hello.txt", Action: FileActionAdd},
-				PlannedFile{Path: "extra.txt", Action: FileActionRemove},
+				ManagedFile{Path: "hello.txt", Action: FileActionAdd},
+				ManagedFile{Path: "extra.txt", Action: FileActionRemove},
 			))
 		})
 
@@ -1225,7 +1249,7 @@ var _ = Describe("Scaffold", func() {
 			plan, err := s.RenderNoop(nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "static.txt", Action: FileActionEqual},
+				ManagedFile{Path: "static.txt", Action: FileActionEqual},
 			))
 		})
 
@@ -1247,8 +1271,8 @@ var _ = Describe("Scaffold", func() {
 			plan, err := s.RenderNoop(map[string]any{"Name": "Test", "Show": false})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "present.txt", Action: FileActionAdd},
-				PlannedFile{Path: "maybe.txt", Action: FileActionRemove},
+				ManagedFile{Path: "present.txt", Action: FileActionAdd},
+				ManagedFile{Path: "maybe.txt", Action: FileActionRemove},
 			))
 		})
 
@@ -1264,8 +1288,8 @@ var _ = Describe("Scaffold", func() {
 			plan, err := s.RenderNoop(nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "main.txt", Action: FileActionAdd},
-				PlannedFile{Path: "extra.txt", Action: FileActionAdd},
+				ManagedFile{Path: "main.txt", Action: FileActionAdd},
+				ManagedFile{Path: "extra.txt", Action: FileActionAdd},
 			))
 		})
 
@@ -1285,29 +1309,6 @@ var _ = Describe("Scaffold", func() {
 			Expect(os.IsNotExist(err)).To(BeTrue())
 		})
 
-		It("Should not mutate ChangedFiles", func() {
-			s, err := New(Config{
-				TargetDirectory: targetDir,
-				Source: map[string]any{
-					"hello.txt": "Hello",
-				},
-			}, template.FuncMap{})
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(s.Render(nil)).To(Succeed())
-			Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
-
-			// RenderNoop renders the same content so files are equal
-			plan, err := s.RenderNoop(nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "hello.txt", Action: FileActionEqual},
-			))
-
-			// ChangedFiles preserved from the earlier Render call
-			Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
-		})
-
 		It("Should work with in-memory source", func() {
 			s, err := New(Config{
 				TargetDirectory: targetDir,
@@ -1321,8 +1322,8 @@ var _ = Describe("Scaffold", func() {
 			plan, err := s.RenderNoop(nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan).To(ConsistOf(
-				PlannedFile{Path: "a.txt", Action: FileActionAdd},
-				PlannedFile{Path: "b.txt", Action: FileActionAdd},
+				ManagedFile{Path: "a.txt", Action: FileActionAdd},
+				ManagedFile{Path: "b.txt", Action: FileActionAdd},
 			))
 		})
 
@@ -1339,7 +1340,7 @@ var _ = Describe("Scaffold", func() {
 				plan, err := s.RenderNoop(map[string]any{"Name": "World"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(plan).To(ConsistOf(
-					PlannedFile{Path: "hello.txt", Action: FileActionAdd},
+					ManagedFile{Path: "hello.txt", Action: FileActionAdd},
 				))
 			})
 
@@ -1362,31 +1363,10 @@ var _ = Describe("Scaffold", func() {
 				plan, err := s.RenderNoop(nil)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(plan).To(ConsistOf(
-					PlannedFile{Path: "equal.txt", Action: FileActionEqual},
-					PlannedFile{Path: "update.txt", Action: FileActionUpdate},
-					PlannedFile{Path: "new.txt", Action: FileActionAdd},
+					ManagedFile{Path: "equal.txt", Action: FileActionEqual},
+					ManagedFile{Path: "update.txt", Action: FileActionUpdate},
+					ManagedFile{Path: "new.txt", Action: FileActionAdd},
 				))
-			})
-
-			It("Should not mutate ChangedFiles", func() {
-				s, err := NewJet(Config{
-					TargetDirectory: targetDir,
-					Source: map[string]any{
-						"hello.txt": "Hello",
-					},
-				}, map[string]jet.Func{})
-				Expect(err).ToNot(HaveOccurred())
-
-				Expect(s.Render(nil)).To(Succeed())
-				Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
-
-				plan, err := s.RenderNoop(nil)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(plan).To(ConsistOf(
-					PlannedFile{Path: "hello.txt", Action: FileActionEqual},
-				))
-
-				Expect(s.ChangedFiles()).To(ConsistOf("hello.txt"))
 			})
 		})
 
@@ -1401,7 +1381,7 @@ var _ = Describe("Scaffold", func() {
 				plan, err := s.RenderNoop(map[string]any{"Name": "World"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(plan).To(ConsistOf(
-					PlannedFile{Path: "hello.txt", Action: FileActionAdd},
+					ManagedFile{Path: "hello.txt", Action: FileActionAdd},
 				))
 			})
 		})
@@ -1503,7 +1483,7 @@ var _ = Describe("Scaffold", func() {
 			}, template.FuncMap{})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = s.Render(nil)
+			_, err = s.Render(nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("is not in target directory"))
 		})
@@ -1517,7 +1497,7 @@ var _ = Describe("Scaffold", func() {
 			}, map[string]jet.Func{})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = s.Render(nil)
+			_, err = s.Render(nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("is not in target directory"))
 		})
@@ -1533,7 +1513,7 @@ var _ = Describe("Scaffold", func() {
 			}, template.FuncMap{})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = s.Render(nil)
+			_, err = s.Render(nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("is not in source directory"))
 		})
@@ -1547,7 +1527,7 @@ var _ = Describe("Scaffold", func() {
 			}, map[string]jet.Func{})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = s.Render(nil)
+			_, err = s.Render(nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("is not in source directory"))
 		})

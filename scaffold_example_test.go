@@ -30,7 +30,7 @@ func Example() {
 		panic(err)
 	}
 
-	err = s.Render(map[string]any{
+	result, err := s.Render(map[string]any{
 		"Name":        "My Project",
 		"Description": "A scaffolded project.",
 		"Package":     "main",
@@ -49,7 +49,9 @@ func Example() {
 	_, statErr := os.Stat(filepath.Join(target, "empty.txt"))
 	fmt.Println("empty.txt exists:", !os.IsNotExist(statErr))
 
-	fmt.Println("changed:", s.ChangedFiles())
+	for _, f := range result {
+		fmt.Printf("%s: %s\n", f.Action, f.Path)
+	}
 
 	// Output:
 	// # My Project
@@ -59,5 +61,6 @@ func Example() {
 	// package main
 	//
 	// empty.txt exists: false
-	// changed: [README.md lib/main.go]
+	// add: README.md
+	// add: lib/main.go
 }

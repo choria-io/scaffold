@@ -81,8 +81,8 @@ const (
 	FileActionRemove FileAction = "remove"
 )
 
-// PlannedFile represents a file and the action that would be taken on it during rendering
-type PlannedFile struct {
+// ManagedFile represents a file and the action that would be taken on it during rendering
+type ManagedFile struct {
 	Path   string
 	Action FileAction
 }
@@ -94,7 +94,6 @@ type Scaffold struct {
 	jetFuncs      map[string]jet.Func
 	log           Logger
 	workingSource string
-	changedFiles  []string
 }
 
 // New creates a new scaffold instance
@@ -300,11 +299,13 @@ func (s *Scaffold) jetTemplateFuncs() map[string]jet.Func {
 		args.RequireNumOfArguments("write", 2, 2)
 
 		var out, content string
-		if err := args.ParseInto(&out, &content); err != nil {
+		err := args.ParseInto(&out, &content)
+		if err != nil {
 			args.Panicf("write: %v", err)
 		}
 
-		if err := s.saveAndPostFile(filepath.Join(s.cfg.TargetDirectory, out), content); err != nil {
+		err = s.saveAndPostFile(filepath.Join(s.cfg.TargetDirectory, out), content)
+		if err != nil {
 			args.Panicf("write: %v", err)
 		}
 
@@ -452,12 +453,6 @@ func (s *Scaffold) saveFile(out string, content string) error {
 		return err
 	}
 
-	rel, err := filepath.Rel(s.cfg.TargetDirectory, absOut)
-	if err != nil {
-		return err
-	}
-	s.changedFiles = append(s.changedFiles, filepath.ToSlash(rel))
-
 	return nil
 }
 
@@ -517,13 +512,6 @@ func (s *Scaffold) postFile(f string) error {
 	return nil
 }
 
-// ChangedFiles returns the list of files that were created or modified during
-// the most recent Render call. Paths are relative to the target directory and
-// always use forward slashes as separators.
-func (s *Scaffold) ChangedFiles() []string {
-	return s.changedFiles
-}
-
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -565,19 +553,21 @@ func atomicCopyFile(src, dst string) error {
 		tmp.Close()
 		return err
 	}
-	if err := tmp.Close(); err != nil {
+	err = tmp.Close()
+	if err != nil {
 		return err
 	}
 
-	if err := os.Chmod(tmpName, srcInfo.Mode().Perm()); err != nil {
+	err = os.Chmod(tmpName, srcInfo.Mode().Perm())
+	if err != nil {
 		return err
 	}
 
 	return os.Rename(tmpName, dst)
 }
 
-func copyTreeToTarget(tmpDir, realTarget string, log Logger) ([]string, error) {
-	var changed []string
+func copyTreeToTarget(tmpDir, realTarget string, log Logger) ([]ManagedFile, error) {
+	var result []ManagedFile
 
 	err := filepath.WalkDir(tmpDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -596,6 +586,8 @@ func copyTreeToTarget(tmpDir, realTarget string, log Logger) ([]string, error) {
 		}
 
 		if d.Type().IsRegular() {
+			relSlash := filepath.ToSlash(rel)
+
 			if _, statErr := os.Stat(dst); statErr == nil {
 				srcHash, err := sha256File(path)
 				if err != nil {
@@ -609,29 +601,37 @@ func copyTreeToTarget(tmpDir, realTarget string, log Logger) ([]string, error) {
 					if log != nil {
 						log.Debugf("Skipping unchanged file %s", rel)
 					}
+					result = append(result, ManagedFile{Path: relSlash, Action: FileActionEqual})
 					return nil
 				}
+
+				err = atomicCopyFile(path, dst)
+				if err != nil {
+					return err
+				}
+				result = append(result, ManagedFile{Path: relSlash, Action: FileActionUpdate})
+				return nil
 			}
 
-			if err := atomicCopyFile(path, dst); err != nil {
+			err = atomicCopyFile(path, dst)
+			if err != nil {
 				return err
 			}
-			changed = append(changed, filepath.ToSlash(rel))
+			result = append(result, ManagedFile{Path: relSlash, Action: FileActionAdd})
 		}
 
 		return nil
 	})
 
-	return changed, err
+	return result, err
 }
 
 // RenderNoop performs a full render into a temporary directory and compares the
 // result against the real target directory. It returns a list of files with
 // their planned action (add, update, equal, remove) without modifying the real
-// target. The caller's ChangedFiles state is preserved.
-func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
+// target.
+func (s *Scaffold) RenderNoop(data any) ([]ManagedFile, error) {
 	realTarget := s.cfg.TargetDirectory
-	origChanged := s.changedFiles
 
 	tmpBase, err := os.MkdirTemp("", "scaffold-noop-")
 	if err != nil {
@@ -641,12 +641,9 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 
 	tmpTarget := filepath.Join(tmpBase, "target")
 
-	renderErr := s.renderToDir(tmpTarget, data)
-
-	s.changedFiles = origChanged
-
-	if renderErr != nil {
-		return nil, renderErr
+	err = s.renderToDir(tmpTarget, data)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build set of rendered file paths
@@ -670,12 +667,12 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 	}
 
 	// Compare rendered files against real target
-	var result []PlannedFile
+	var result []ManagedFile
 	for rel, tmpPath := range rendered {
 		realPath := filepath.Join(realTarget, filepath.FromSlash(rel))
 		_, statErr := os.Stat(realPath)
 		if os.IsNotExist(statErr) {
-			result = append(result, PlannedFile{Path: rel, Action: FileActionAdd})
+			result = append(result, ManagedFile{Path: rel, Action: FileActionAdd})
 		} else if statErr != nil {
 			return nil, statErr
 		} else {
@@ -688,9 +685,9 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 				return nil, err
 			}
 			if tmpHash == realHash {
-				result = append(result, PlannedFile{Path: rel, Action: FileActionEqual})
+				result = append(result, ManagedFile{Path: rel, Action: FileActionEqual})
 			} else {
-				result = append(result, PlannedFile{Path: rel, Action: FileActionUpdate})
+				result = append(result, ManagedFile{Path: rel, Action: FileActionUpdate})
 			}
 		}
 	}
@@ -710,7 +707,7 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 			}
 			relSlash := filepath.ToSlash(rel)
 			if _, ok := rendered[relSlash]; !ok {
-				result = append(result, PlannedFile{Path: relSlash, Action: FileActionRemove})
+				result = append(result, ManagedFile{Path: relSlash, Action: FileActionRemove})
 			}
 			return nil
 		})
@@ -728,8 +725,8 @@ func (s *Scaffold) RenderNoop(data any) ([]PlannedFile, error) {
 
 // renderToDir renders all templates into the specified directory, running
 // post-processing on the rendered files. It temporarily sets TargetDirectory
-// to dir so that saveFile containment checks, the write() template func,
-// and changedFiles tracking all operate against dir.
+// to dir so that saveFile containment checks and the write() template func
+// operate against dir.
 func (s *Scaffold) renderToDir(dir string, data any) error {
 	origTarget := s.cfg.TargetDirectory
 	s.cfg.TargetDirectory = dir
@@ -782,32 +779,35 @@ func (s *Scaffold) renderToDir(dir string, data any) error {
 
 // Render creates the target directory and places all files into it after
 // template processing and post-processing. Files are rendered into a temporary
-// directory first, then atomically copied to the real target.
-func (s *Scaffold) Render(data any) error {
-	s.changedFiles = nil
-
+// directory first, then atomically copied to the real target. The returned
+// slice describes every managed file and the action taken (add, update, equal).
+func (s *Scaffold) Render(data any) ([]ManagedFile, error) {
 	tmpDir, err := os.MkdirTemp("", "scaffold-render-")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer os.RemoveAll(tmpDir)
 
 	tmpTarget := filepath.Join(tmpDir, "target")
 
-	if err := s.renderToDir(tmpTarget, data); err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(s.cfg.TargetDirectory, 0755); err != nil {
-		return err
-	}
-
-	changed, err := copyTreeToTarget(tmpTarget, s.cfg.TargetDirectory, s.log)
+	err = s.renderToDir(tmpTarget, data)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	s.changedFiles = changed
+	err = os.MkdirAll(s.cfg.TargetDirectory, 0755)
+	if err != nil {
+		return nil, err
+	}
 
-	return nil
+	result, err := copyTreeToTarget(tmpTarget, s.cfg.TargetDirectory, s.log)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Path < result[j].Path
+	})
+
+	return result, nil
 }
