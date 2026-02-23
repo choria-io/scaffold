@@ -17,7 +17,7 @@ import (
 	terminal "golang.org/x/term"
 )
 
-func propertyEmptyVal(p Property) any {
+func propertyEmptyVal(p Property) map[string]any {
 	switch p.IfEmpty {
 	case ArrayIfEmpty:
 		return map[string]any{p.Name: []any{}}

@@ -73,7 +73,9 @@ func (o *objEntry) objModeCombined(tk string) (nilValue bool, value any) {
 
 	o.eachChild(func(e entry) {
 		_, cval := e.combinedValue()
-		cvlist = append(cvlist, cval.(map[string]any))
+		if m, ok := cval.(map[string]any); ok {
+			cvlist = append(cvlist, m)
+		}
 	})
 
 	for _, e := range cvlist {
