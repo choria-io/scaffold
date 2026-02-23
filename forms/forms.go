@@ -25,8 +25,9 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/Masterminds/sprig/v3"
-	"github.com/choria-io/scaffold/internal/validator"
 	"gopkg.in/yaml.v3"
+
+	"github.com/choria-io/scaffold/internal/validator"
 )
 
 // surveyor abstracts the survey library for testability.
@@ -388,7 +389,8 @@ func (p *processor) askProperties(props []Property, parent entry, root entry) er
 			continue
 		}
 
-		if err := p.askProperty(prop, parent, root); err != nil {
+		err = p.askProperty(prop, parent, root)
+		if err != nil {
 			return err
 		}
 	}
