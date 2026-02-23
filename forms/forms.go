@@ -13,7 +13,7 @@ import (
 	"text/template"
 
 	"github.com/AlecAivazis/survey/v2"
-	"github.com/choria-io/scaffold/internal/sprig"
+	"github.com/Masterminds/sprig/v3"
 	"github.com/choria-io/scaffold/internal/validator"
 	"gopkg.in/yaml.v3"
 )

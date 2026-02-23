@@ -2,6 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// Package scaffold renders directory trees from Go or Jet templates.
+//
+// Templates can be supplied as an on-disk source directory or as an in-memory
+// map of filenames to content. The rendered output is written atomically to a
+// target directory; only files whose content has changed are copied, making
+// repeated renders safe for use with existing targets when MergeTargetDirectory
+// is enabled.
+//
+// Built-in template functions include the Sprig library, a write() function
+// that creates additional files from within a template, and a render() function
+// that evaluates a partial template from the _partials subdirectory. Custom
+// delimiters, post-processing commands, and caller-supplied template functions
+// are all supported.
 package scaffold
 
 import (
@@ -20,7 +33,7 @@ import (
 	"text/template"
 
 	"github.com/CloudyKit/jet/v6"
-	"github.com/choria-io/scaffold/internal/sprig"
+	"github.com/Masterminds/sprig/v3"
 	"github.com/kballard/go-shellquote"
 )
 
@@ -119,11 +132,19 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("no sources provided")
 	}
 
+	if len(cfg.Source) > 0 && cfg.SourceDirectory != "" {
+		return fmt.Errorf("source and source_directory are mutually exclusive")
+	}
+
 	if cfg.SourceDirectory != "" {
 		_, err := os.Stat(cfg.SourceDirectory)
 		if err != nil {
 			return fmt.Errorf("cannot read source directory: %w", err)
 		}
+	}
+
+	if (cfg.CustomLeftDelimiter == "") != (cfg.CustomRightDelimiter == "") {
+		return fmt.Errorf("both left_delimiter and right_delimiter must be set")
 	}
 
 	if !cfg.MergeTargetDirectory {
