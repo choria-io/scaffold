@@ -261,7 +261,7 @@ func (s *Scaffold) renderAndPostFile(out string, t string, data any) error {
 	}
 
 	if s.log != nil {
-		s.log.Infof("Rendered %s", out)
+		s.log.Debugf("Rendered %s", out)
 	}
 
 	return nil
