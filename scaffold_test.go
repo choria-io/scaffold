@@ -49,6 +49,15 @@ var _ = Describe("Scaffold", func() {
 			Entry("missing source directory",
 				Config{TargetDirectory: "/tmp/scaffold-validation-test", SourceDirectory: "/no/such/directory"},
 				"cannot read source directory"),
+			Entry("both source and source_directory",
+				Config{TargetDirectory: "/tmp/scaffold-validation-test", SourceDirectory: "/tmp", Source: map[string]any{"f": "c"}},
+				"source and source_directory are mutually exclusive"),
+			Entry("only left delimiter",
+				Config{TargetDirectory: "/tmp/scaffold-validation-test", Source: map[string]any{"f": "c"}, CustomLeftDelimiter: "<<"},
+				"both left_delimiter and right_delimiter must be set"),
+			Entry("only right delimiter",
+				Config{TargetDirectory: "/tmp/scaffold-validation-test", Source: map[string]any{"f": "c"}, CustomRightDelimiter: ">>"},
+				"both left_delimiter and right_delimiter must be set"),
 		)
 
 		It("Should require target directory to not exist", func() {
@@ -119,6 +128,15 @@ var _ = Describe("Scaffold", func() {
 			Entry("missing source directory",
 				Config{TargetDirectory: "/tmp/scaffold-validation-test", SourceDirectory: "/no/such/directory"},
 				"cannot read source directory"),
+			Entry("both source and source_directory",
+				Config{TargetDirectory: "/tmp/scaffold-validation-test", SourceDirectory: "/tmp", Source: map[string]any{"f": "c"}},
+				"source and source_directory are mutually exclusive"),
+			Entry("only left delimiter",
+				Config{TargetDirectory: "/tmp/scaffold-validation-test", Source: map[string]any{"f": "c"}, CustomLeftDelimiter: "<<"},
+				"both left_delimiter and right_delimiter must be set"),
+			Entry("only right delimiter",
+				Config{TargetDirectory: "/tmp/scaffold-validation-test", Source: map[string]any{"f": "c"}, CustomRightDelimiter: ">>"},
+				"both left_delimiter and right_delimiter must be set"),
 		)
 
 		It("Should require target directory to not exist", func() {

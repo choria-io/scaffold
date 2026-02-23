@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/choria-io/scaffold/internal/sprig"
+	"github.com/Masterminds/sprig/v3"
 	"github.com/jedib0t/go-pretty/v6/text"
 
 	"github.com/AlecAivazis/survey/v2"
