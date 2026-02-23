@@ -8,8 +8,7 @@ import (
 	"fmt"
 )
 
-// see comments in graph.go
-
+// newObjectEntry creates an objEntry initialized with the given map value.
 func newObjectEntry(v map[string]any) entry {
 	e := &objEntry{}
 	e.set(v)
@@ -17,6 +16,10 @@ func newObjectEntry(v map[string]any) entry {
 	return e
 }
 
+// objEntry is an entry node that holds a map[string]any value. When arrayMode is true
+// (set by adding an arrayEntry child), combinedValue delegates to arrayModeCombined
+// which wraps the child array under this object's key. Otherwise objModeCombined
+// merges all child maps into a single result under this object's key.
 type objEntry struct {
 	graph
 	isSet     bool
@@ -47,38 +50,37 @@ func (o *objEntry) addChild(e entry) (entry, error) {
 	}
 }
 
-func (o *objEntry) value() (nilValue bool, value any) {
+func (o *objEntry) value() (isSet bool, value any) {
 	return o.isSet, o.val
 }
 
-func (o *objEntry) arrayModeCombined(tk string) (nilValue bool, value any) {
-	var isSet bool
+func (o *objEntry) arrayModeCombined(key string) (isSet bool, value any) {
 	res := map[string]any{}
 
-	isSet, res[tk] = o.children[0].combinedValue()
+	isSet, res[key] = o.children[0].combinedValue()
 
 	return isSet, res
 }
 
-func (o *objEntry) objModeCombined(tk string) (nilValue bool, value any) {
+func (o *objEntry) objModeCombined(key string) (isSet bool, value any) {
 	result := map[string]any{}
 	resultMap := map[string]any{}
-	if tk == "" {
+	if key == "" {
 		result = resultMap
 	} else {
-		result[tk] = resultMap
+		result[key] = resultMap
 	}
 
-	cvlist := []map[string]any{}
+	childValues := []map[string]any{}
 
 	o.eachChild(func(e entry) {
-		_, cval := e.combinedValue()
-		if m, ok := cval.(map[string]any); ok {
-			cvlist = append(cvlist, m)
+		_, childVal := e.combinedValue()
+		if m, ok := childVal.(map[string]any); ok {
+			childValues = append(childValues, m)
 		}
 	})
 
-	for _, e := range cvlist {
+	for _, e := range childValues {
 		for k, v := range e {
 			resultMap[k] = v
 		}
@@ -87,7 +89,7 @@ func (o *objEntry) objModeCombined(tk string) (nilValue bool, value any) {
 	return true, result
 }
 
-func (o *objEntry) combinedValue() (nilValue bool, value any) {
+func (o *objEntry) combinedValue() (isSet bool, value any) {
 	if !o.hasChildren() {
 		return o.isSet, o.val
 	}
@@ -96,26 +98,26 @@ func (o *objEntry) combinedValue() (nilValue bool, value any) {
 		return false, o.val
 	}
 
-	tk := ""
+	key := ""
 	for k := range o.val {
-		tk = k
+		key = k
 		break
 	}
 
 	if o.arrayMode {
-		return o.arrayModeCombined(tk)
+		return o.arrayModeCombined(key)
 	} else {
-		return o.objModeCombined(tk)
+		return o.objModeCombined(key)
 	}
 }
 
 func (o *objEntry) set(v any) error {
-	sv, ok := v.(map[string]any)
+	mapVal, ok := v.(map[string]any)
 	if !ok {
 		return fmt.Errorf("incompatible value")
 	}
 
-	o.val = sv
+	o.val = mapVal
 	o.isSet = true
 
 	return nil

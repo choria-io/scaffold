@@ -8,34 +8,40 @@ import (
 	"fmt"
 )
 
-// This is a data structure that can be built using recursive techniques but that at any time can be interrogated
-// for the value built so far.  Generally recursively built data structures are only assembled fully at the time that
-// the last recursion finishes.
+// entry defines the interface for nodes in the result tree.
 //
-// For forms though we want to be able to say only ask about an item if a previous item meets some condition, this means
-// we both need to build recursively but at any time be able to look back.
+// The tree is built incrementally as the user answers form questions. Conditional
+// properties need to evaluate expressions against earlier answers while the tree is
+// still being constructed, so combinedValue can be called at any point to walk the
+// tree and produce the result accumulated so far.
 //
-// This code, really  awful code, allows that by adding objects, strings and arrays into a dag that can be walked at
-// any time to build the result accumulated thus far.  Even while building a map or array one can reference back and
-// would include the currently-being-built map as it stands up to the point.
+// Three concrete types implement entry:
+//   - objEntry: holds a map[string]any, merges children under its key
+//   - stringEntry: holds a string used as a map key, wraps children under it
+//   - arrayEntry: holds a []any, appends child values to its slice
 //
-// This is an entirely internal detail, so while I am not happy with the code as it is its been a struggle to get working
-// at all, so, I am shipping it as is for now.
-
+// The first return value of value and combinedValue indicates whether the node
+// has been set (true = value is present and valid).
 type entry interface {
 	addChild(entry) (entry, error)
 	setParent(entry) error
-	value() (nilValue bool, value any)
-	combinedValue() (nilValue bool, value any)
+	value() (isSet bool, value any)
+	combinedValue() (isSet bool, value any)
 	set(any) error
 	isEmptyValue() bool
 }
 
+// graph provides the shared tree structure embedded by all entry types.
+// It maintains an ordered list of children and a parent guard that prevents
+// a node from being added to more than one parent.
 type graph struct {
 	children []entry
 	parent   entry
 }
 
+// addChild appends e as a child of this node. It calls setParent on the child
+// to enforce the single-parent invariant. The concrete entry types (objEntry,
+// stringEntry) override addChild to enforce type constraints before delegating here.
 func (g *graph) addChild(e entry) (entry, error) {
 	err := e.setParent(e)
 	if err != nil {
@@ -47,6 +53,9 @@ func (g *graph) addChild(e entry) (entry, error) {
 	return e, nil
 }
 
+// setParent marks this node as having been added to a parent. It returns an error
+// if the node has already been adopted, preventing it from appearing in multiple
+// places in the tree. The stored value is not used for traversal.
 func (g *graph) setParent(e entry) error {
 	if g.parent != nil {
 		return fmt.Errorf("parent already set")
@@ -57,10 +66,12 @@ func (g *graph) setParent(e entry) error {
 	return nil
 }
 
+// hasChildren reports whether this node has any children.
 func (g *graph) hasChildren() bool {
 	return len(g.children) > 0
 }
 
+// eachChild calls cb for each child in insertion order.
 func (g *graph) eachChild(cb func(entry)) {
 	for i := 0; i < len(g.children); i++ {
 		cb(g.children[i])

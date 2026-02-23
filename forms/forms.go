@@ -2,6 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// Package forms implements interactive terminal forms that collect user input
+// and produce structured data. Forms are defined as YAML documents containing
+// typed properties (string, bool, integer, float, password, object, array) that
+// are presented to the user interactively. Properties support conditionals,
+// validation expressions, enums, defaults, and nested sub-properties.
+//
+// The collected answers are assembled into a map[string]any result using an
+// internal entry tree (see graph.go) that supports querying partially-built
+// results, enabling conditional properties that reference earlier answers.
 package forms
 
 //go:generate mockgen -source forms.go -destination mock_test.go -package forms -typed
@@ -20,6 +29,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// surveyor abstracts the survey library for testability.
 type surveyor interface {
 	AskOne(p survey.Prompt, response interface{}, opts ...survey.AskOpt) error
 }
@@ -50,25 +60,37 @@ func withOutput(w io.Writer) processOption {
 	}
 }
 
+// IfEmpty constants control what value is emitted when a property answer is empty.
 const (
-	ArrayIfEmpty  = "array"
-	ObjectIfEmpty = "object"
-	AbsentIfEmpty = "absent"
-	StringType    = "string"
-	BoolType      = "bool"
-	IntType       = "integer"
-	FloatType     = "float"
-	PasswordType  = "password"
-	ObjectType    = "object"
-	ArrayType     = "array"
+	ArrayIfEmpty  = "array"  // emit an empty array
+	ObjectIfEmpty = "object" // emit an empty object
+	AbsentIfEmpty = "absent" // omit the key entirely
 )
 
+// Type constants identify property types in form definitions.
+const (
+	StringType   = "string"
+	BoolType     = "bool"
+	IntType      = "integer"
+	FloatType    = "float"
+	PasswordType = "password"
+	ObjectType   = "object"
+	ArrayType    = "array"
+)
+
+// Form defines an interactive form with a name, description, and a list of properties
+// to present to the user. The Description supports Go template syntax with Sprig functions
+// and color markup tags like {red}text{/red}.
 type Form struct {
 	Name        string     `json:"name" yaml:"name"`
 	Description string     `json:"description" yaml:"description"`
 	Properties  []Property `json:"properties" yaml:"properties"`
 }
 
+// Property defines a single form field. Type determines the input method (string, bool,
+// integer, float, password, object, array). Properties with sub-Properties create nested
+// structures. ConditionalExpression is a validation expression evaluated against the current
+// environment and collected input to decide whether to present this property.
 type Property struct {
 	Name                  string     `json:"name" yaml:"name"`
 	Description           string     `json:"description" yaml:"description"`
@@ -83,6 +105,8 @@ type Property struct {
 	Properties            []Property `json:"properties" yaml:"properties"`
 }
 
+// RenderedDescription executes the property's Description as a Go template with Sprig
+// functions against env, then applies color markup to the result.
 func (p *Property) RenderedDescription(env map[string]any) (string, error) {
 	t, err := template.New("property").Funcs(sprig.FuncMap()).Parse(p.Description)
 	if err != nil {
@@ -98,16 +122,17 @@ func (p *Property) RenderedDescription(env map[string]any) (string, error) {
 	return colorMarkup(buffer.String()), nil
 }
 
+// processor holds the configuration needed to interactively process a form.
+// The entry tree root is not stored here; it is passed explicitly through the
+// ask methods so that the processor remains focused on user interaction.
 type processor struct {
-	form       Form
-	val        entry
 	env        map[string]any
 	surveyor   surveyor
 	isTerminal func() bool
 	output     io.Writer
 }
 
-// ProcessReader reads all data from r and ProcessForm() it as YAML
+// ProcessReader reads YAML form data from r and processes it interactively.
 func ProcessReader(r io.Reader, env map[string]any, opts ...processOption) (map[string]any, error) {
 	fb, err := io.ReadAll(r)
 	if err != nil {
@@ -117,7 +142,7 @@ func ProcessReader(r io.Reader, env map[string]any, opts ...processOption) (map[
 	return ProcessBytes(fb, env, opts...)
 }
 
-// ProcessFile reads f and ProcessForm() it as YAML
+// ProcessFile reads YAML form data from the file at path f and processes it interactively.
 func ProcessFile(f string, env map[string]any, opts ...processOption) (map[string]any, error) {
 	fb, err := os.ReadFile(f)
 	if err != nil {
@@ -127,7 +152,7 @@ func ProcessFile(f string, env map[string]any, opts ...processOption) (map[strin
 	return ProcessBytes(fb, env, opts...)
 }
 
-// ProcessBytes treats f as a YAML document and ProcessForm() it
+// ProcessBytes unmarshals f as a YAML form definition and processes it interactively.
 func ProcessBytes(f []byte, env map[string]any, opts ...processOption) (map[string]any, error) {
 	var form Form
 	err := yaml.Unmarshal(f, &form)
@@ -138,11 +163,11 @@ func ProcessBytes(f []byte, env map[string]any, opts ...processOption) (map[stri
 	return ProcessForm(form, env, opts...)
 }
 
-// ProcessForm processes the form and return a data structure with the answers
+// ProcessForm presents the form interactively on a terminal and returns the collected
+// answers as a map. It requires a valid terminal (stdin and stdout). The env map provides
+// template variables for property descriptions and conditional expressions.
 func ProcessForm(f Form, env map[string]any, opts ...processOption) (map[string]any, error) {
 	proc := &processor{
-		form:       f,
-		val:        newObjectEntry(map[string]any{}),
 		env:        env,
 		surveyor:   &defaultSurveyor{},
 		isTerminal: isTerminal,
@@ -171,12 +196,14 @@ func ProcessForm(f Form, env map[string]any, opts ...processOption) (map[string]
 
 	proc.surveyor.AskOne(&survey.Input{Message: "Press enter to start"}, &struct{}{})
 
-	err = proc.askProperties(f.Properties, proc.val)
+	root := newObjectEntry(map[string]any{})
+
+	err = proc.askProperties(f.Properties, root, root)
 	if err != nil {
 		return nil, err
 	}
 
-	_, res := proc.val.combinedValue()
+	_, res := root.combinedValue()
 	result, ok := res.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("unexpected form result type %T", res)
@@ -184,8 +211,10 @@ func ProcessForm(f Form, env map[string]any, opts ...processOption) (map[string]
 	return result, nil
 }
 
-func (p *processor) askArrayType(prop Property, parent entry) error {
-	val, err := p.askArrayTypeProperty(prop)
+// askArrayType collects array values for prop and attaches them to parent.
+// Arrays with sub-properties produce []map[string]any; simple arrays produce []string.
+func (p *processor) askArrayType(prop Property, parent entry, root entry) error {
+	val, err := p.askArrayTypeProperty(prop, root)
 	if err != nil {
 		return err
 	}
@@ -223,7 +252,11 @@ func (p *processor) askArrayType(prop Property, parent entry) error {
 	}
 }
 
-func (p *processor) askObjWithProperties(prop Property, parent entry) error {
+// askObjWithProperties handles object or namespaced properties that have sub-properties.
+// For ObjectType properties it loops, asking for a unique entry name each iteration and
+// collecting sub-properties under that name. For untyped properties with sub-properties
+// it collects one set of answers under prop.Name and returns.
+func (p *processor) askObjWithProperties(prop Property, parent entry, root entry) error {
 	d, err := prop.RenderedDescription(p.env)
 	if err != nil {
 		return err
@@ -273,7 +306,7 @@ func (p *processor) askObjWithProperties(prop Property, parent entry) error {
 			return err
 		}
 
-		err = p.askProperties(prop.Properties, val)
+		err = p.askProperties(prop.Properties, val, root)
 		if err != nil {
 			return err
 		}
@@ -287,6 +320,7 @@ func (p *processor) askObjWithProperties(prop Property, parent entry) error {
 	}
 }
 
+// askInt prompts for an integer value and adds it to parent.
 func (p *processor) askInt(prop Property, parent entry) error {
 	ans, err := p.askIntValue(prop)
 	if err != nil {
@@ -298,6 +332,7 @@ func (p *processor) askInt(prop Property, parent entry) error {
 	return err
 }
 
+// askFloat prompts for a float value and adds it to parent.
 func (p *processor) askFloat(prop Property, parent entry) error {
 	ans, err := p.askFloatValue(prop)
 	if err != nil {
@@ -309,6 +344,7 @@ func (p *processor) askFloat(prop Property, parent entry) error {
 	return err
 }
 
+// askBool prompts for a boolean value and adds it to parent.
 func (p *processor) askBool(prop Property, parent entry) error {
 	ans, err := p.askBoolValue(prop)
 	if err != nil {
@@ -320,6 +356,9 @@ func (p *processor) askBool(prop Property, parent entry) error {
 	return err
 }
 
+// askString prompts for a string or password value and adds it to parent.
+// Handles IfEmpty behavior: AbsentIfEmpty omits the key, other IfEmpty values
+// emit a typed empty value, and non-empty answers are stored normally.
 func (p *processor) askString(prop Property, parent entry) error {
 	ans, err := p.askStringValue(prop)
 	if err != nil {
@@ -337,9 +376,11 @@ func (p *processor) askString(prop Property, parent entry) error {
 	return err
 }
 
-func (p *processor) askProperties(props []Property, parent entry) error {
+// askProperties iterates over props, evaluates each property's conditional expression
+// against root, and delegates to askProperty for those that should be presented.
+func (p *processor) askProperties(props []Property, parent entry, root entry) error {
 	for _, prop := range props {
-		should, err := p.shouldProcess(prop)
+		should, err := p.shouldProcess(prop, root)
 		if err != nil {
 			return err
 		}
@@ -347,27 +388,7 @@ func (p *processor) askProperties(props []Property, parent entry) error {
 			continue
 		}
 
-		switch {
-		case prop.Type == ArrayType:
-			err = p.askArrayType(prop, parent)
-
-		case isOneOf(prop.Type, ObjectType, "") && len(prop.Properties) > 0:
-			err = p.askObjWithProperties(prop, parent)
-
-		case prop.Type == BoolType:
-			err = p.askBool(prop, parent)
-
-		case prop.Type == IntType:
-			err = p.askInt(prop, parent)
-
-		case prop.Type == FloatType:
-			err = p.askFloat(prop, parent)
-
-		case isOneOf(prop.Type, StringType, PasswordType, ""): // added to parent as a single item object entry
-			err = p.askString(prop, parent)
-		}
-
-		if err != nil {
+		if err := p.askProperty(prop, parent, root); err != nil {
 			return err
 		}
 	}
@@ -375,6 +396,33 @@ func (p *processor) askProperties(props []Property, parent entry) error {
 	return nil
 }
 
+// askProperty dispatches a single property to the appropriate type-specific handler.
+func (p *processor) askProperty(prop Property, parent entry, root entry) error {
+	switch {
+	case prop.Type == ArrayType:
+		return p.askArrayType(prop, parent, root)
+
+	case isOneOf(prop.Type, ObjectType, "") && len(prop.Properties) > 0:
+		return p.askObjWithProperties(prop, parent, root)
+
+	case prop.Type == BoolType:
+		return p.askBool(prop, parent)
+
+	case prop.Type == IntType:
+		return p.askInt(prop, parent)
+
+	case prop.Type == FloatType:
+		return p.askFloat(prop, parent)
+
+	case isOneOf(prop.Type, StringType, PasswordType, ""):
+		return p.askString(prop, parent)
+
+	default:
+		return fmt.Errorf("unsupported property type %q", prop.Type)
+	}
+}
+
+// askStringEnum presents a select prompt with the property's Enum choices.
 func (p *processor) askStringEnum(prop Property) (string, error) {
 	var ans string
 	var opts []survey.AskOpt
@@ -401,6 +449,8 @@ func (p *processor) askStringEnum(prop Property) (string, error) {
 	return ans, nil
 }
 
+// askStringValue displays the property description, then prompts for a string
+// (or password) value. Delegates to askStringEnum when the property has Enum values.
 func (p *processor) askStringValue(prop Property) (string, error) {
 	d, err := prop.RenderedDescription(p.env)
 	if err != nil {
@@ -444,6 +494,8 @@ func (p *processor) askStringValue(prop Property) (string, error) {
 	return ans, nil
 }
 
+// askFloatValue displays the property description and prompts for a float value,
+// validating the input with an isFloat expression combined with any custom validation.
 func (p *processor) askFloatValue(prop Property) (float64, error) {
 	d, err := prop.RenderedDescription(p.env)
 	if err != nil {
@@ -472,6 +524,8 @@ func (p *processor) askFloatValue(prop Property) (float64, error) {
 	return strconv.ParseFloat(ans, 64)
 }
 
+// askIntValue displays the property description and prompts for an integer value,
+// validating the input with an isInt expression combined with any custom validation.
 func (p *processor) askIntValue(prop Property) (int, error) {
 	d, err := prop.RenderedDescription(p.env)
 	if err != nil {
@@ -500,6 +554,7 @@ func (p *processor) askIntValue(prop Property) (int, error) {
 	return strconv.Atoi(ans)
 }
 
+// askBoolValue displays the property description and prompts for a boolean confirmation.
 func (p *processor) askBoolValue(prop Property) (bool, error) {
 	d, err := prop.RenderedDescription(p.env)
 	if err != nil {
@@ -531,7 +586,11 @@ func (p *processor) askBoolValue(prop Property) (bool, error) {
 	return ans, nil
 }
 
-func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
+// askArrayTypeProperty collects array entries by repeatedly prompting the user.
+// For properties with sub-properties it returns []map[string]any; for simple
+// properties it returns []string. Returns nil when the user declines and
+// IfEmpty is AbsentIfEmpty.
+func (p *processor) askArrayTypeProperty(prop Property, root entry) (any, error) {
 	switch {
 	case len(prop.Properties) > 0:
 		answer := []map[string]any{}
@@ -561,7 +620,7 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 			}
 
 			val := newObjectEntry(map[string]any{})
-			err := p.askProperties(prop.Properties, val)
+			err := p.askProperties(prop.Properties, val, root)
 			if err != nil {
 				return nil, err
 			}
@@ -614,7 +673,10 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 	}
 }
 
-func (p *processor) shouldProcess(prop Property) (bool, error) {
+// shouldProcess evaluates the property's ConditionalExpression against the current
+// environment merged with the answers collected so far (available as "input"/"Input").
+// Returns true when there is no conditional or when the expression evaluates to true.
+func (p *processor) shouldProcess(prop Property, root entry) (bool, error) {
 	if prop.ConditionalExpression == "" {
 		return true, nil
 	}
@@ -624,7 +686,7 @@ func (p *processor) shouldProcess(prop Property) (bool, error) {
 		env[k] = v
 	}
 
-	_, env["input"] = p.val.combinedValue()
+	_, env["input"] = root.combinedValue()
 	env["Input"] = env["input"]
 
 	return validator.Validate(env, prop.ConditionalExpression)

@@ -8,8 +8,7 @@ import (
 	"fmt"
 )
 
-// see comments in graph.go
-
+// newStringEntry creates a stringEntry initialized with the given string value.
 func newStringEntry(v string) entry {
 	e := &stringEntry{}
 	e.set(v)
@@ -17,6 +16,9 @@ func newStringEntry(v string) entry {
 	return e
 }
 
+// stringEntry is an entry node that holds a string value used as a map key.
+// Its combinedValue wraps child values under that key: with one child it produces
+// {val: childValue}, with multiple children it merges them into {val: {merged children}}.
 type stringEntry struct {
 	graph
 	isSet bool
@@ -32,47 +34,47 @@ func (s *stringEntry) addChild(e entry) (entry, error) {
 }
 
 func (s *stringEntry) set(v any) error {
-	sv, ok := v.(string)
+	strVal, ok := v.(string)
 	if !ok {
 		return fmt.Errorf("incompatible value")
 	}
 
-	s.val = sv
+	s.val = strVal
 	s.isSet = true
 
 	return nil
 }
 
-func (s *stringEntry) value() (nilValue bool, value any) {
+func (s *stringEntry) value() (isSet bool, value any) {
 	return s.isSet, s.val
 }
 
-func (s *stringEntry) combinedValue() (nilValue bool, value any) {
+func (s *stringEntry) combinedValue() (isSet bool, value any) {
 	if !s.isSet {
 		return false, nil
 	}
 
 	if len(s.children) == 1 {
-		_, cv := s.children[0].combinedValue()
-		return true, map[string]any{s.val: cv}
+		_, childVal := s.children[0].combinedValue()
+		return true, map[string]any{s.val: childVal}
 	}
 
-	resMap := map[string]any{}
-	res := map[string]any{
-		s.val: resMap,
+	resultMap := map[string]any{}
+	result := map[string]any{
+		s.val: resultMap,
 	}
 
 	s.eachChild(func(e entry) {
 		if isSet, val := e.combinedValue(); isSet {
-			if mv, ok := val.(map[string]any); ok {
-				for k := range mv {
-					resMap[k] = mv[k]
+			if mapVal, ok := val.(map[string]any); ok {
+				for k := range mapVal {
+					resultMap[k] = mapVal[k]
 				}
 			}
 		}
 	})
 
-	return true, res
+	return true, result
 }
 
 func (s *stringEntry) isEmptyValue() bool {

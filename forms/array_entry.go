@@ -8,8 +8,7 @@ import (
 	"fmt"
 )
 
-// see comments in graph.go
-
+// newArrayEntry creates an arrayEntry initialized with the given slice.
 func newArrayEntry(v []any) entry {
 	e := &arrayEntry{}
 	e.set(v)
@@ -17,6 +16,8 @@ func newArrayEntry(v []any) entry {
 	return e
 }
 
+// arrayEntry is an entry node that holds a []any value. Its combinedValue
+// copies its own elements and appends any child combined values to the slice.
 type arrayEntry struct {
 	graph
 	isSet bool
@@ -27,29 +28,29 @@ func (s *arrayEntry) isEmptyValue() bool {
 	return len(s.val) == 0
 }
 
-func (a *arrayEntry) value() (nilValue bool, value any) {
+func (a *arrayEntry) value() (isSet bool, value any) {
 	return a.isSet, a.val
 }
 
-func (a *arrayEntry) combinedValue() (nilValue bool, value any) {
-	res := make([]any, len(a.val))
-	copy(res, a.val)
+func (a *arrayEntry) combinedValue() (isSet bool, value any) {
+	result := make([]any, len(a.val))
+	copy(result, a.val)
 
 	a.eachChild(func(e entry) {
 		_, val := e.combinedValue()
-		res = append(res, val)
+		result = append(result, val)
 	})
 
-	return len(res) > 0, res
+	return len(result) > 0, result
 }
 
 func (a *arrayEntry) set(v any) error {
-	sv, ok := v.([]any)
+	sliceVal, ok := v.([]any)
 	if !ok {
 		return fmt.Errorf("incompatible value")
 	}
 
-	a.val = sv
+	a.val = sliceVal
 	a.isSet = true
 
 	return nil

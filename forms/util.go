@@ -17,6 +17,8 @@ import (
 	terminal "golang.org/x/term"
 )
 
+// propertyEmptyVal returns the empty-state value for a property based on its IfEmpty
+// setting: an empty array, empty object, or empty map (default).
 func propertyEmptyVal(p Property) map[string]any {
 	switch p.IfEmpty {
 	case ArrayIfEmpty:
@@ -27,6 +29,8 @@ func propertyEmptyVal(p Property) map[string]any {
 		return map[string]any{}
 	}
 }
+
+// askConfirmation presents a yes/no confirmation prompt and returns the user's answer.
 func (p *processor) askConfirmation(prompt string, dflt bool) (bool, error) {
 	ans := dflt
 
@@ -51,6 +55,8 @@ func isOneOf(val string, valid ...string) bool {
 	return false
 }
 
+// renderTemplate executes tmpl as a Go template with Sprig text functions
+// against env and applies color markup to the result.
 func renderTemplate(tmpl string, env map[string]any) (string, error) {
 	t, err := template.New("form").Funcs(sprig.TxtFuncMap()).Parse(tmpl)
 	if err != nil {
