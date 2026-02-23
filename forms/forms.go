@@ -4,6 +4,8 @@
 
 package forms
 
+//go:generate mockgen -source forms.go -destination mock_test.go -package forms -typed
+
 import (
 	"bytes"
 	"fmt"
@@ -17,6 +19,36 @@ import (
 	"github.com/choria-io/scaffold/internal/validator"
 	"gopkg.in/yaml.v3"
 )
+
+type surveyor interface {
+	AskOne(p survey.Prompt, response interface{}, opts ...survey.AskOpt) error
+}
+
+type defaultSurveyor struct{}
+
+func (d *defaultSurveyor) AskOne(p survey.Prompt, response interface{}, opts ...survey.AskOpt) error {
+	return survey.AskOne(p, response, opts...)
+}
+
+type processOption func(*processor)
+
+func withSurveyor(s surveyor) processOption {
+	return func(p *processor) {
+		p.surveyor = s
+	}
+}
+
+func withIsTerminal(f func() bool) processOption {
+	return func(p *processor) {
+		p.isTerminal = f
+	}
+}
+
+func withOutput(w io.Writer) processOption {
+	return func(p *processor) {
+		p.output = w
+	}
+}
 
 const (
 	ArrayIfEmpty  = "array"
@@ -67,45 +99,61 @@ func (p *Property) RenderedDescription(env map[string]any) (string, error) {
 }
 
 type processor struct {
-	form Form
-	val  entry
-	env  map[string]any
+	form       Form
+	val        entry
+	env        map[string]any
+	surveyor   surveyor
+	isTerminal func() bool
+	output     io.Writer
 }
 
 // ProcessReader reads all data from r and ProcessForm() it as YAML
-func ProcessReader(r io.Reader, env map[string]any) (map[string]any, error) {
+func ProcessReader(r io.Reader, env map[string]any, opts ...processOption) (map[string]any, error) {
 	fb, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
 
-	return ProcessBytes(fb, env)
+	return ProcessBytes(fb, env, opts...)
 }
 
 // ProcessFile reads f and ProcessForm() it as YAML
-func ProcessFile(f string, env map[string]any) (map[string]any, error) {
+func ProcessFile(f string, env map[string]any, opts ...processOption) (map[string]any, error) {
 	fb, err := os.ReadFile(f)
 	if err != nil {
 		return nil, err
 	}
 
-	return ProcessBytes(fb, env)
+	return ProcessBytes(fb, env, opts...)
 }
 
 // ProcessBytes treats f as a YAML document and ProcessForm() it
-func ProcessBytes(f []byte, env map[string]any) (map[string]any, error) {
+func ProcessBytes(f []byte, env map[string]any, opts ...processOption) (map[string]any, error) {
 	var form Form
 	err := yaml.Unmarshal(f, &form)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	return ProcessForm(form, env)
+	return ProcessForm(form, env, opts...)
 }
 
 // ProcessForm processes the form and return a data structure with the answers
-func ProcessForm(f Form, env map[string]any) (map[string]any, error) {
-	if !isTerminal() {
+func ProcessForm(f Form, env map[string]any, opts ...processOption) (map[string]any, error) {
+	proc := &processor{
+		form:       f,
+		val:        newObjectEntry(map[string]any{}),
+		env:        env,
+		surveyor:   &defaultSurveyor{},
+		isTerminal: isTerminal,
+		output:     os.Stdout,
+	}
+
+	for _, o := range opts {
+		o(proc)
+	}
+
+	if !proc.isTerminal() {
 		return nil, fmt.Errorf("can only process forms on a valid terminal")
 	}
 
@@ -113,21 +161,15 @@ func ProcessForm(f Form, env map[string]any) (map[string]any, error) {
 		return nil, fmt.Errorf("no properties defined")
 	}
 
-	proc := &processor{
-		form: f,
-		val:  newObjectEntry(map[string]any{}),
-		env:  env,
-	}
-
 	d, err := renderTemplate(f.Description, env)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(d)
+	fmt.Fprintln(proc.output, d)
 
-	fmt.Println()
+	fmt.Fprintln(proc.output)
 
-	survey.AskOne(&survey.Input{Message: "Press enter to start"}, &struct{}{})
+	proc.surveyor.AskOne(&survey.Input{Message: "Press enter to start"}, &struct{}{})
 
 	err = proc.askProperties(f.Properties, proc.val)
 	if err != nil {
@@ -178,30 +220,36 @@ func (p *processor) askObjWithProperties(prop Property, parent entry) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println()
-	fmt.Println(d)
-	fmt.Println()
+	fmt.Fprintln(p.output)
+	fmt.Fprintln(p.output, d)
+	fmt.Fprintln(p.output)
+
+	firstEntry := true
 
 	for {
-		if !prop.Required && prop.Type == ObjectType {
-			ok, err := askConfirmation(fmt.Sprintf("Add %s entry", prop.Name), false)
-			if err != nil {
-				return err
-			}
-
-			if !ok {
-				_, err = parent.addChild(newObjectEntry(propertyEmptyVal(prop).(map[string]any)))
+		if prop.Type == ObjectType {
+			// For required objects, skip confirmation on the first entry (at least one is mandatory).
+			// For optional objects or after the first entry, always ask.
+			if !firstEntry || !prop.Required {
+				ok, err := p.askConfirmation(fmt.Sprintf("Add %s entry", prop.Name), false)
 				if err != nil {
 					return err
 				}
-				return nil
+
+				if !ok {
+					_, err = parent.addChild(newObjectEntry(propertyEmptyVal(prop).(map[string]any)))
+					if err != nil {
+						return err
+					}
+					return nil
+				}
 			}
 		}
 
 		var ans string
 
 		if prop.Type == ObjectType {
-			err := survey.AskOne(&survey.Input{
+			err := p.surveyor.AskOne(&survey.Input{
 				Message: "Unique name for this entry",
 				Help:    prop.Help,
 			}, &ans, survey.WithValidator(survey.Required))
@@ -221,6 +269,8 @@ func (p *processor) askObjWithProperties(prop Property, parent entry) error {
 		if err != nil {
 			return err
 		}
+
+		firstEntry = false
 
 		// when type is empty we are not asking for a nested object, just one so we bail
 		if prop.Type == "" {
@@ -330,7 +380,7 @@ func (p *processor) askStringEnum(prop Property) (string, error) {
 		deflt = prop.Enum[0]
 	}
 
-	err := survey.AskOne(&survey.Select{
+	err := p.surveyor.AskOne(&survey.Select{
 		Message: prop.Name,
 		Help:    prop.Help,
 		Default: deflt,
@@ -348,9 +398,9 @@ func (p *processor) askStringValue(prop Property) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Println()
-	fmt.Println(d)
-	fmt.Println()
+	fmt.Fprintln(p.output)
+	fmt.Fprintln(p.output, d)
+	fmt.Fprintln(p.output)
 
 	if len(prop.Enum) > 0 {
 		return p.askStringEnum(prop)
@@ -368,12 +418,12 @@ func (p *processor) askStringValue(prop Property) (string, error) {
 	}
 
 	if prop.Type == PasswordType {
-		err = survey.AskOne(&survey.Password{
+		err = p.surveyor.AskOne(&survey.Password{
 			Message: prop.Name,
 			Help:    prop.Help,
 		}, &ans, opts...)
 	} else {
-		err = survey.AskOne(&survey.Input{
+		err = p.surveyor.AskOne(&survey.Input{
 			Message: prop.Name,
 			Help:    prop.Help,
 			Default: prop.Default,
@@ -391,9 +441,9 @@ func (p *processor) askFloatValue(prop Property) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	fmt.Println()
-	fmt.Println(d)
-	fmt.Println()
+	fmt.Fprintln(p.output)
+	fmt.Fprintln(p.output, d)
+	fmt.Fprintln(p.output)
 
 	var ans string
 
@@ -402,7 +452,7 @@ func (p *processor) askFloatValue(prop Property) (float64, error) {
 		validation = fmt.Sprintf("%s && %s", validation, prop.ValidationExpression)
 	}
 
-	err = survey.AskOne(&survey.Input{
+	err = p.surveyor.AskOne(&survey.Input{
 		Message: prop.Name,
 		Help:    prop.Help,
 		Default: prop.Default,
@@ -419,9 +469,9 @@ func (p *processor) askIntValue(prop Property) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	fmt.Println()
-	fmt.Println(d)
-	fmt.Println()
+	fmt.Fprintln(p.output)
+	fmt.Fprintln(p.output, d)
+	fmt.Fprintln(p.output)
 
 	var ans string
 
@@ -430,7 +480,7 @@ func (p *processor) askIntValue(prop Property) (int, error) {
 		validation = fmt.Sprintf("%s && %s", validation, prop.ValidationExpression)
 	}
 
-	err = survey.AskOne(&survey.Input{
+	err = p.surveyor.AskOne(&survey.Input{
 		Message: prop.Name,
 		Help:    prop.Help,
 		Default: prop.Default,
@@ -447,9 +497,9 @@ func (p *processor) askBoolValue(prop Property) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	fmt.Println()
-	fmt.Println(d)
-	fmt.Println()
+	fmt.Fprintln(p.output)
+	fmt.Fprintln(p.output, d)
+	fmt.Fprintln(p.output)
 
 	var ans bool
 	var dflt bool
@@ -461,7 +511,7 @@ func (p *processor) askBoolValue(prop Property) (bool, error) {
 		}
 	}
 
-	err = survey.AskOne(&survey.Confirm{
+	err = p.surveyor.AskOne(&survey.Confirm{
 		Message: prop.Name,
 		Help:    prop.Help,
 		Default: dflt,
@@ -485,7 +535,7 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 					prompt = fmt.Sprintf("Add first '%s' entry", prop.Name)
 				}
 
-				ok, err := askConfirmation(prompt, false)
+				ok, err := p.askConfirmation(prompt, false)
 				if err != nil {
 					return nil, err
 				}
@@ -526,7 +576,7 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 					prompt = fmt.Sprintf("Add first '%s' entry", prop.Name)
 				}
 
-				ok, err = askConfirmation(prompt, false)
+				ok, err = p.askConfirmation(prompt, false)
 				if err != nil {
 					return nil, err
 				}
@@ -546,7 +596,7 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 			ans = append(ans, val)
 		}
 
-		fmt.Println()
+		fmt.Fprintln(p.output)
 
 		return ans, nil
 	}
