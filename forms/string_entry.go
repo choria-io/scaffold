@@ -64,9 +64,10 @@ func (s *stringEntry) combinedValue() (nilValue bool, value any) {
 
 	s.eachChild(func(e entry) {
 		if isSet, val := e.combinedValue(); isSet {
-			mv := val.(map[string]any)
-			for k := range mv {
-				resMap[k] = mv[k]
+			if mv, ok := val.(map[string]any); ok {
+				for k := range mv {
+					resMap[k] = mv[k]
+				}
 			}
 		}
 	})

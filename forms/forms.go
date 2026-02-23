@@ -177,7 +177,11 @@ func ProcessForm(f Form, env map[string]any, opts ...processOption) (map[string]
 	}
 
 	_, res := proc.val.combinedValue()
-	return res.(map[string]any), nil
+	result, ok := res.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("unexpected form result type %T", res)
+	}
+	return result, nil
 }
 
 func (p *processor) askArrayType(prop Property, parent entry) error {
@@ -205,8 +209,12 @@ func (p *processor) askArrayType(prop Property, parent entry) error {
 		return nil
 
 	default:
+		nvm, ok := nv.([]map[string]any)
+		if !ok {
+			return fmt.Errorf("unexpected array property type %T", nv)
+		}
 		n := []any{}
-		for _, v := range nv.([]map[string]any) {
+		for _, v := range nvm {
 			n = append(n, v)
 		}
 
@@ -237,7 +245,7 @@ func (p *processor) askObjWithProperties(prop Property, parent entry) error {
 				}
 
 				if !ok {
-					_, err = parent.addChild(newObjectEntry(propertyEmptyVal(prop).(map[string]any)))
+					_, err = parent.addChild(newObjectEntry(propertyEmptyVal(prop)))
 					if err != nil {
 						return err
 					}
@@ -321,7 +329,7 @@ func (p *processor) askString(prop Property, parent entry) error {
 	switch {
 	case ans == "" && prop.IfEmpty == AbsentIfEmpty:
 	case ans == "" && prop.IfEmpty != "":
-		_, err = parent.addChild(newObjectEntry(propertyEmptyVal(prop).(map[string]any)))
+		_, err = parent.addChild(newObjectEntry(propertyEmptyVal(prop)))
 	default:
 		_, err = parent.addChild(newObjectEntry(map[string]any{prop.Name: ans}))
 	}
@@ -548,7 +556,7 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 						return nil, nil
 					}
 
-					return []map[string]any{propertyEmptyVal(prop).(map[string]any)}, nil
+					return []map[string]any{propertyEmptyVal(prop)}, nil
 				}
 			}
 
@@ -559,7 +567,11 @@ func (p *processor) askArrayTypeProperty(prop Property) (any, error) {
 			}
 
 			_, cv := val.combinedValue()
-			answer = append(answer, cv.(map[string]any))
+			m, ok := cv.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("unexpected combined value type %T", cv)
+			}
+			answer = append(answer, m)
 		}
 
 	default:
