@@ -9,6 +9,36 @@ Together they allow building Wizard-style file generators.
 
 See [App Builder](https://github.com/choria-io/appbuilder) for these projects in use in an end-user product.
 
+## CLI Usage
+
+A small CLI tool in `scaffold` can render scaffolds from the command line.
+
+```bash
+scaffold render <scaffold-dir> <target-dir> [key=value ...]
+```
+
+Data can be provided as command-line key=value pairs, from a JSON file, or
+interactively via a form:
+
+```bash
+# Key-value pairs
+scaffold render ./templates ./output Name=myproject
+
+# JSON file
+scaffold render ./templates ./output --json data.json
+
+# Interactive form
+scaffold render ./templates ./output --form form.yaml
+```
+
+A working example is included in the `example` directory with a form
+(`example_form.yaml`) and a scaffold (`address/`) that renders contact
+information to a text file:
+
+```bash
+scaffold render example/address /tmp/output --form example/example_form.yaml
+```
+
 ## Scaffold
 
 The `scaffold` package renders directory trees from templates. Templates can
@@ -64,15 +94,15 @@ s, err := scaffold.New(scaffold.Config{
 
 ### Configuration options
 
-| Field                  | Description                                                                 |
-|------------------------|-----------------------------------------------------------------------------|
-| `target`               | Output directory (required)                                                 |
-| `source_directory`     | Read templates from this directory (mutually exclusive with `source`)        |
-| `source`               | In-memory template map (mutually exclusive with `source_directory`)          |
-| `merge_target_directory` | Allow writing into an existing target directory                           |
-| `skip_empty`           | Omit files that are empty after rendering                                   |
-| `left_delimiter` / `right_delimiter` | Custom template delimiters (both must be set)                 |
-| `post`                 | Post-processing commands matched by file glob                               |
+| Field                                | Description                                                           |
+|--------------------------------------|-----------------------------------------------------------------------|
+| `target`                             | Output directory (required)                                           |
+| `source_directory`                   | Read templates from this directory (mutually exclusive with `source`) |
+| `source`                             | In-memory template map (mutually exclusive with `source_directory`)   |
+| `merge_target_directory`             | Allow writing into an existing target directory                       |
+| `skip_empty`                         | Omit files that are empty after rendering                             |
+| `left_delimiter` / `right_delimiter` | Custom template delimiters (both must be set)                         |
+| `post`                               | Post-processing commands matched by file glob                         |
 
 ### Built-in template functions
 
@@ -217,28 +247,28 @@ properties:
 
 ### Property types
 
-| Type       | Description                                    |
-|------------|------------------------------------------------|
-| `string`   | Free-text input, optionally limited by `enum`  |
-| `password` | Masked string input                            |
-| `integer`  | Whole number, validated automatically          |
-| `float`    | Decimal number, validated automatically        |
-| `bool`     | Yes/no confirmation                            |
-| `array`    | Collects multiple values, including objects     |
-| `object`   | Named group of nested properties               |
+| Type       | Description                                   |
+|------------|-----------------------------------------------|
+| `string`   | Free-text input, optionally limited by `enum` |
+| `password` | Masked string input                           |
+| `integer`  | Whole number, validated automatically         |
+| `float`    | Decimal number, validated automatically       |
+| `bool`     | Yes/no confirmation                           |
+| `array`    | Collects multiple values, including objects   |
+| `object`   | Named group of nested properties              |
 
 ### Property options
 
-| Field          | Description                                                              |
-|----------------|--------------------------------------------------------------------------|
-| `required`     | Prompt cannot be skipped                                                 |
-| `default`      | Pre-filled value shown to the user                                       |
-| `enum`         | Restrict input to a list of choices (string type)                        |
-| `help`         | Extended help text shown on demand                                       |
-| `validation`   | An [expr](https://github.com/expr-lang/expr) expression; `value` holds the input |
-| `conditional`  | An expr expression controlling whether the property is shown; `input` holds answers so far |
-| `empty`        | Behaviour when the answer is empty: `absent` omits the key, `array` or `object` sets an empty container |
-| `properties`   | Nested properties for `object` and `array` types                         |
+| Field         | Description                                                                                             |
+|---------------|---------------------------------------------------------------------------------------------------------|
+| `required`    | Prompt cannot be skipped                                                                                |
+| `default`     | Pre-filled value shown to the user                                                                      |
+| `enum`        | Restrict input to a list of choices (string type)                                                       |
+| `help`        | Extended help text shown on demand                                                                      |
+| `validation`  | An [expr](https://github.com/expr-lang/expr) expression; `value` holds the input                        |
+| `conditional` | An expr expression controlling whether the property is shown; `input` holds answers so far              |
+| `empty`       | Behaviour when the answer is empty: `absent` omits the key, `array` or `object` sets an empty container |
+| `properties`  | Nested properties for `object` and `array` types                                                        |
 
 ### Processing a form
 

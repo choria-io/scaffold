@@ -1,0 +1,16 @@
+Contact Card
+============
+
+Name: {{ .name }} {{ .surname }}
+{{ if .email -}}
+Email:   {{ .email }}
+{{ end -}}
+
+Addresses
+---------
+{{ range $i, $addr := .addresses }}
+{{ add $i 1 }}. {{ $addr.label }}
+   {{ $addr.street }}
+   {{ $addr.city }}, {{ $addr.postal_code }}
+   {{ $addr.country }}
+{{ end -}}
