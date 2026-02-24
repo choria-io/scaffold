@@ -1,0 +1,55 @@
+name: contact
+description: >
+  {bold}Contact Information{/bold}
+
+  Collect a person's details and their addresses.
+properties:
+  - name: name
+    description: "{green}Personal Details{/green}"
+    type: string
+    required: true
+    validation: "len(value) >= 2"
+
+  - name: surname
+    description: "{green}Personal Details{/green}"
+    type: string
+    required: true
+
+  - name: email
+    description: "{green}Contact{/green}"
+    type: string
+    validation: "value contains '@'"
+
+  - name: addresses
+    description: "{green}Addresses{/green}\n\nAdd one or more postal addresses."
+    type: array
+    required: true
+    properties:
+      - name: label
+        description: "Address label"
+        type: string
+        required: true
+        enum:
+          - Home
+          - Work
+          - Other
+
+      - name: street
+        description: "Street address"
+        type: string
+        required: true
+
+      - name: city
+        description: "City"
+        type: string
+        required: true
+
+      - name: postal_code
+        description: "Postal / ZIP code"
+        type: string
+        required: true
+
+      - name: country
+        description: "Country"
+        type: string
+        default: US

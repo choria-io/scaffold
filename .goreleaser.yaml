@@ -1,0 +1,47 @@
+version: 2
+project_name: scaffold
+
+release:
+  github:
+    owner: choria-io
+    name: scaffold
+  name_template: "Release {{.Version}}"
+  draft: true
+
+changelog:
+  disable: true
+
+builds:
+  - id: scaffold
+    main: ./cmd
+    binary: scaffold
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - name_template: "scaffold-{{.Version}}-{{.Os}}-{{.Arch}}{{if .Arm}}{{.Arm}}{{end}}"
+    wrap_in_directory: true
+    formats: [tar.gz]
+    files:
+      - README.md
+      - LICENSE
+
+homebrew_casks:
+  - name: scaffold
+    directory: Formula
+    repository:
+      owner: choria-io
+      name: homebrew-tap
+    url:
+      template: "https://github.com/choria-io/scaffold/releases/download/{{ .Tag }}/scaffold-{{.Version}}-{{ .Os }}-{{ .Arch }}{{if .Arm}}{{.Arm}}{{end}}.tar.gz"
+    homepage: "https://github.com/choria-io/scaffold"
+    description: "File scaffolding and interactive forms generator"
+    skip_upload: false
+
+checksum:
+  name_template: "SHA256SUMS"
+  algorithm: sha256
