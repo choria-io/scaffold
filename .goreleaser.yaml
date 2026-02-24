@@ -30,18 +30,6 @@ archives:
       - README.md
       - LICENSE
 
-homebrew_casks:
-  - name: scaffold
-    directory: Formula
-    repository:
-      owner: choria-io
-      name: homebrew-tap
-    url:
-      template: "https://github.com/choria-io/scaffold/releases/download/{{ .Tag }}/scaffold-{{.Version}}-{{ .Os }}-{{ .Arch }}{{if .Arm}}{{.Arm}}{{end}}.tar.gz"
-    homepage: "https://github.com/choria-io/scaffold"
-    description: "File scaffolding and interactive forms generator"
-    skip_upload: false
-
 checksum:
   name_template: "SHA256SUMS"
   algorithm: sha256
