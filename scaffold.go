@@ -632,6 +632,35 @@ func copyTreeToTarget(tmpDir, realTarget string, log Logger) ([]ManagedFile, err
 	return result, err
 }
 
+// findRemovedFiles walks targetDir and returns a ManagedFile with FileActionRemove
+// for every file not present in the rendered set.
+func findRemovedFiles(rendered map[string]struct{}, targetDir string) ([]ManagedFile, error) {
+	if _, err := os.Stat(targetDir); err != nil {
+		return nil, nil
+	}
+
+	var removed []ManagedFile
+	err := filepath.WalkDir(targetDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(targetDir, path)
+		if err != nil {
+			return err
+		}
+		relSlash := filepath.ToSlash(rel)
+		if _, ok := rendered[relSlash]; !ok {
+			removed = append(removed, ManagedFile{Path: relSlash, Action: FileActionRemove})
+		}
+		return nil
+	})
+
+	return removed, err
+}
+
 // RenderNoop performs a full render into a temporary directory and compares the
 // result against the real target directory. It returns a list of files with
 // their planned action (add, update, equal, remove) without modifying the real
@@ -698,29 +727,16 @@ func (s *Scaffold) RenderNoop(data any) ([]ManagedFile, error) {
 		}
 	}
 
-	// Walk real target to find files not in rendered output
-	if _, err := os.Stat(realTarget); err == nil {
-		err = filepath.WalkDir(realTarget, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			rel, err := filepath.Rel(realTarget, path)
-			if err != nil {
-				return err
-			}
-			relSlash := filepath.ToSlash(rel)
-			if _, ok := rendered[relSlash]; !ok {
-				result = append(result, ManagedFile{Path: relSlash, Action: FileActionRemove})
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+	// Find files in the real target that were not rendered
+	renderedSet := make(map[string]struct{}, len(rendered))
+	for k := range rendered {
+		renderedSet[k] = struct{}{}
 	}
+	removed, err := findRemovedFiles(renderedSet, realTarget)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, removed...)
 
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Path < result[j].Path
@@ -810,6 +826,17 @@ func (s *Scaffold) Render(data any) ([]ManagedFile, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Find files in the real target that were not rendered
+	rendered := make(map[string]struct{}, len(result))
+	for _, mf := range result {
+		rendered[mf.Path] = struct{}{}
+	}
+	removed, err := findRemovedFiles(rendered, s.cfg.TargetDirectory)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, removed...)
 
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Path < result[j].Path

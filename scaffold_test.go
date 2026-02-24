@@ -910,6 +910,7 @@ var _ = Describe("Scaffold", func() {
 				result, err := s.Render(nil)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(result).To(ConsistOf(
+					ManagedFile{Path: "existing.txt", Action: FileActionRemove},
 					ManagedFile{Path: "new.txt", Action: FileActionAdd},
 				))
 			})
