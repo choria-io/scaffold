@@ -68,6 +68,77 @@ var _ = Describe("ProcessForm conditionals", func() {
 		Expect(res).To(Equal(map[string]any{"mode": "expert", "advanced": "extra-setting"}))
 	})
 
+	It("Should evaluate conditionals within array sub-properties", func() {
+		f := Form{
+			Description: "test",
+			Properties: []Property{
+				{
+					Name:        "things",
+					Description: "things",
+					Type:        ArrayType,
+					Required:    true,
+					Properties: []Property{
+						{Name: "choice", Description: "choice", Type: StringType, Enum: []string{"one", "two", "three"}},
+						{Name: "depends", Description: "depends", Type: StringType, Required: true, ConditionalExpression: `Input.things.choice == "one"`},
+					},
+				},
+			},
+		}
+
+		gomock.InOrder(
+			mock.EXPECT().AskOne(gomock.Any(), gomock.Any()).Return(nil),
+			// choice enum
+			mockStringResponse(mock, "one"),
+			// depends (conditional satisfied, required -> validator -> 3 args)
+			mockStringResponseV(mock, "dep-value"),
+			// "Add additional" -> no
+			mockBoolResponse(mock, false),
+		)
+
+		res, err := ProcessForm(f, nil, opts...)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res).To(Equal(map[string]any{
+			"things": []any{
+				map[string]any{"choice": "one", "depends": "dep-value"},
+			},
+		}))
+	})
+
+	It("Should skip array sub-properties when conditional is false", func() {
+		f := Form{
+			Description: "test",
+			Properties: []Property{
+				{
+					Name:        "things",
+					Description: "things",
+					Type:        ArrayType,
+					Required:    true,
+					Properties: []Property{
+						{Name: "choice", Description: "choice", Type: StringType, Enum: []string{"one", "two", "three"}},
+						{Name: "depends", Description: "depends", Type: StringType, Required: true, ConditionalExpression: `Input.things.choice == "one"`},
+					},
+				},
+			},
+		}
+
+		gomock.InOrder(
+			mock.EXPECT().AskOne(gomock.Any(), gomock.Any()).Return(nil),
+			// choice enum -> "two"
+			mockStringResponse(mock, "two"),
+			// depends should be skipped since choice != "one"
+			// "Add additional" -> no
+			mockBoolResponse(mock, false),
+		)
+
+		res, err := ProcessForm(f, nil, opts...)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res).To(Equal(map[string]any{
+			"things": []any{
+				map[string]any{"choice": "two"},
+			},
+		}))
+	})
+
 	It("Should reference env in conditionals", func() {
 		f := Form{
 			Description: "test",

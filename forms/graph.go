@@ -24,6 +24,7 @@ import (
 // has been set (true = value is present and valid).
 type entry interface {
 	addChild(entry) (entry, error)
+	removeChild(entry)
 	setParent(entry) error
 	value() (isSet bool, value any)
 	combinedValue() (isSet bool, value any)
@@ -64,6 +65,16 @@ func (g *graph) setParent(e entry) error {
 	g.parent = e
 
 	return nil
+}
+
+// removeChild detaches e from this node's children list.
+func (g *graph) removeChild(e entry) {
+	for i, c := range g.children {
+		if c == e {
+			g.children = append(g.children[:i], g.children[i+1:]...)
+			return
+		}
+	}
 }
 
 // hasChildren reports whether this node has any children.
